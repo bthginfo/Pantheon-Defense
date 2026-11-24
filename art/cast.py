@@ -18,6 +18,7 @@ from geometry import color_material, studio
 from commanders import COMMANDERS, commander
 from commander_motion import commander_clips
 from commander_finish import add_detail_uv, apply_detail
+from commander_paint import PROFILES, brush_colour
 
 TAU = math.tau
 
@@ -37,6 +38,8 @@ def bake_skin(root, data, textured_material=False):
     weights=defaultdict(lambda: defaultdict(list))
     variations=[]
     detail_surfaces=[]
+    lead_character=data["id"] in COMMANDERS
+    profiles=[]
     depsgraph=bpy.context.evaluated_depsgraph_get()
     for obj in mesh_parts:
         evaluated=obj.evaluated_get(depsgraph)
@@ -64,6 +67,8 @@ def bake_skin(root, data, textured_material=False):
             texture_contrast=float(finish.get("Surface variation",0.))
             variations.append(texture_contrast)
             detail_surfaces.append(int(finish.get("Micro relief",0)))
+            if lead_character:
+                profiles.append(PROFILES.get(finish.name))
             if textured_material:
                 shader=finish.node_tree.nodes.get("Principled BSDF")
                 roughness=shader.inputs["Roughness"].default_value
@@ -107,15 +112,18 @@ def bake_skin(root, data, textured_material=False):
         for i in face.vertices:
             light[i]+=tint
             count[i]+=1
+    corner_normals=mesh.corner_normals if lead_character else None
     for face,colors,variation in zip(mesh.polygons,pigment,variations):
+        profile=profiles[face.index] if lead_character else None
         for loop,i,color in zip(face.loop_indices,face.vertices,colors):
             tint=light[i]/count[i]
-            if variation:
+            if profile is not None:
+                color=brush_colour(profile,color,mesh.vertices[i].co,corner_normals[loop].vector)
+            elif variation:
                 sample=mesh.vertices[i].co
                 tint*=1+variation*(.64*noise_vector(sample*19.5)[0]+.36*noise_vector(sample*68.3)[1])
             attribute.data[loop].color=(color[0]*tint,color[1]*tint,color[2]*tint,1.)
     mat=color_material("Painted metal edges, textile and clay")
-    lead_character=data["id"] in COMMANDERS
     if lead_character:
         detail_uv=add_detail_uv(mesh,normals,detail_surfaces)
         apply_detail(mat,detail_uv)

@@ -57,7 +57,7 @@ def apply_detail(mat,uv):
     texture.extension='EXTEND'
     normal=nodes.new('ShaderNodeNormalMap')
     normal.uv_map=uv.name
-    normal.inputs['Strength'].default_value=.73
+    normal.inputs['Strength'].default_value=.46
     links.new(coords.outputs['UV'],texture.inputs['Vector'])
     links.new(texture.outputs['Color'],normal.inputs['Color'])
     links.new(normal.outputs['Normal'],nodes['Principled BSDF'].inputs['Normal'])

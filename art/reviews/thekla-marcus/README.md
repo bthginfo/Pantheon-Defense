@@ -1,8 +1,14 @@
 # Thekla und Marcus zur Abnahme
 
-Thekla und Marcus nutzen individuelle Körperformen, Materialien und Posen nach der freigegebenen Konzepttafel. In den ersten Ansichten habe ich vor allem die Silhouetten und die Farbverteilung geprüft. Die Seiten-, Rücken- und Bewegungsansichten haben gezeigt, wo Kragen, Haaransatz, Umhang oder Schild nachgearbeitet werden mussten. Die folgenden Bilder stammen aus den Blender-Szenen der Spielmodelle.
+Thekla trägt jetzt tiefes Jade, warme Kupfertöne und abgeriebenen Schildlack. Marcus hat kühleren Stahl und Rostrot mit dunklen Violetttönen in den Stofffalten. Die gemalten Kanten, Falten und Gebrauchsspuren stecken in den Farben der exportierten Spielmodelle.
 
-![Thekla und Marcus in gleicher Größe gerendert](paar.webp)
+![Handpainted-Fassung von Thekla und Marcus in gleicher Größe](paar.webp)
+
+Der direkte Vergleich zeigt dieselbe Pose, Kamera und Beleuchtung. [Vorher und Handpainted](vorher-nachher.webp)
+
+[Schilde und Rüstung im Detail](oberflaechen.webp) · [Stofffalten von hinten](bemalte-umhaenge.webp)
+
+## Erste Abnahmerunde
 
 | Ansicht | Was sich daran prüfen lässt |
 | --- | --- |

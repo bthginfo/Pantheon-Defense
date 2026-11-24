@@ -4,6 +4,7 @@ from math import cos, pi, sin, tau
 from mathutils import Euler, Vector
 
 from commander_forms import angle_span, piping, relief, strips, tube
+from commander_paint import paint_losses, shield_wash
 from geometry import mesh_object, span, stone, volume
 
 
@@ -68,7 +69,7 @@ def sun_shield(a,m):
         curved=-.051*(1.-min(1.1,radial))
         return tuple(center+tilt@Vector((x,curved-d,z)))
     rim=[(.012,-.044),(.62,-.042),(.947,-.038),(1.010,-.025),(1.025,-.007),
-         (1.016,.006),(.975,.012),(.934,.009),(.903,.003),(.68,0.),(.34,0.),(.006,0.)]
+         (1.016,.006),(.975,.012),(.934,.009),(.903,.003),(.76,0.),(.55,0.),(.35,0.),(.18,0.),(.006,0.)]
     rows=[[place(r*radius*cos(t),r*radius*sin(t),d) for t in angle_span(0,tau,50)[:-1]] for r,d in rim]
     shield=volume('Single curved wooden aspis with a doubled cast bronze lip',rows,m['paint blue'],parent,True)
     for shade in (m['wood'],m['bronze'],m['brass'],m['gold dark']):
@@ -76,6 +77,14 @@ def sun_shield(a,m):
     for face in shield.data.polygons:
         row=(face.index-1)//50
         face.material_index=1 if row<2 else 4 if row==2 else 2 if row in (3,4,6) else 3 if row in (5,7) else 0
+    shield_wash(shield,center,inverse,radius,radius,True)
+    paint_losses('Soft turquoise and verdigris at the edges of the painted aspis',parent,place,
+                 [(-.207,.148,.029,.008,.24),(-.238,.112,.015,.005,.27),
+                  (-.165,.194,.020,.009,-.18),(.083,.228,.021,.007,.49),
+                  (.232,-.096,.022,.006,-.50),(.207,-.145,.035,.008,.57),
+                  (.175,-.180,.014,.005,.72),(-.140,-.208,.022,.007,-.73),
+                  (-.246,-.065,.010,.006,-.02)],
+                 [m['scuffed turquoise'],m['verdigris']])
     for n in range(8):
         phase=n*tau/8+.18
         ray=[(.054,-.116),(.102,-.10),(.149,-.147),(.205,-.113),(.271,-.002),(.230,-.054),
@@ -157,8 +166,16 @@ def scutum(a,m):
         x=width*.984*(2*u-1)*(1-.078*abs(2*t-1)**18)
         x+=.0013*sin(pi*t)*sin(23*u)
         return place(x,z,.0028)
-    strips('Crimson painted hide fitted to the correctly curved wooden core',parent,[i/22 for i in range(23)],
-           [i/30 for i in range(31)],panels,[m['paint red']],smooth=True)
+    painted_hide=strips('Crimson painted hide fitted to the correctly curved wooden core',parent,[i/22 for i in range(23)],
+                        [i/30 for i in range(31)],panels,[m['paint red']],smooth=True)
+    shield_wash(painted_hide,center,tilt.transposed(),width,height,False)
+    paint_losses('Short worn brush strokes in the madder pigment around the eagle',parent,place,
+                 [(-.182,.410,.037,.007,.58),(-.207,.386,.022,.007,.41),
+                  (-.176,.373,.034,.004,.69),(.166,.384,.022,.004,-.66),
+                  (.209,.329,.015,.008,-.68),(.214,-.216,.017,.009,.41),
+                  (-.183,-.310,.037,.007,.73),(-.209,-.339,.024,.009,.70),
+                  (.172,-.390,.039,.006,.48),(.204,-.424,.014,.007,-.41)],
+                 [m['faded madder'],m['screened oxblood']])
     piping('Rolled brass frame following the tall round cornered face',parent,
            [place(x,z,.001) for x,z in [*outline,outline[0]]],.0109,m['bronze'],8)
     piping('Thin reflected highlight on the inside of the rim',parent,

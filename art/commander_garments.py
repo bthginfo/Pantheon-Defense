@@ -4,6 +4,7 @@ from math import atan2, cos, pi, sin, tau
 from mathutils import Vector
 
 from commander_forms import angle_span, piping, relief, stitched, strips, tube
+from commander_paint import mantle_stamp
 from geometry import stone, volume
 
 
@@ -189,9 +190,10 @@ def cloak(a,b,m):
         return x,y,z
     columns=[0,.028,.058,.115,.18,.27,.35,.42,.50,.59,.66,.74,.83,.883,.942,.972,1.]
     rows=[0,.07,.17,.29,.44,.59,.71,.82,.902,.929,.95,.979,1.]
-    pattern=lambda u,t: 1 if .92<t<.979 or u<.028 or u>.972 else 2 if .56<t<.83 and .24<u<.36 else 0
-    strips('Long shaped mantle with deep weighted folds and inset border',parent,columns,rows,
-           cape,[main,edge,lighter,interior],pattern,lining=.007)
+    pattern=lambda u,t: int(.92<t<.979 or u<.028 or u>.972)
+    cloak_mesh=strips('Long shaped mantle with deep weighted folds and inset border',parent,columns,rows,
+                      cape,[main,edge,lighter,interior],pattern,lining=.007)
+    mantle_stamp(cloak_mesh,columns,rows,greek)
     path=[]
     for u in [i/34 for i in range(35)]:
         x,y,z=cape(u,.954)
@@ -219,9 +221,9 @@ def cloak(a,b,m):
             y=-.160-.026*sin(pi*u)-.025*sin(t*3*pi+.34*u)-.019*t
         return x,y,z
     shawl_columns=[0,.05,.14,.24,.36,.48,.60,.73,.86,.95,1.]
-    face_pattern=pattern if greek else lambda u,t: 2 if .32<t<.47 else 0
-    strips('Inscribed fold sweeping over the shoulder and across the cloak clasp',parent,
-           shawl_columns,rows,shawl,[main,edge,lighter,interior],face_pattern,lining=.009)
+    shawl_mesh=strips('Inscribed fold sweeping over the shoulder and across the cloak clasp',parent,
+                      shawl_columns,rows,shawl,[main,edge,lighter,interior],pattern if greek else None,lining=.009)
+    mantle_stamp(shawl_mesh,shawl_columns,rows,greek)
     def bridge(u,t):
         if greek:
             p,q=Vector(shawl(u,0)),Vector(cape(.37+.46*u,0))
