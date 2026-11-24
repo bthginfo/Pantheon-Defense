@@ -122,7 +122,8 @@ def prepare(name, base, groups, targets, all_weights, lip_vertices):
     def uncovered(face):
         x,_,z=(sum(coordinates[index][axis] for index in face)/len(face) for axis in range(3))
         neck=z-joints['neck'][2]
-        if neck>-.071 and abs(x)<min(.143,.071+1.70*max(0,neck+.019)):
+        # The opening of each neckline needs a continuous throat and upper chest through the poses.
+        if neck>-.112 and abs(x)<.145:
             return True
         if abs(x)>joints['l-shoulder'][0]+.026 and z>.83:
             return True

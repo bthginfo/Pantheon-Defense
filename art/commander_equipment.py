@@ -25,27 +25,22 @@ def thekla_spear(a,m):
         span('Leather lashing at the hand grip',pick(z-.007),pick(z+.008),.016,m['hide'],parent,10,.016)
     z0=1.94
     x0,y0,_=pick(z0)
-    plan=[(0,.267),(-.017,.204),(-.036,.105),(-.016,.051),(-.014,0),(.014,0),(.017,.047),(.035,.108),(.017,.201)]
-    vertices=[(x0+u,y0,z0+h) for u,h in plan]
-    front=len(vertices)
-    vertices.extend([(x0,y0-.018,z0+.104),(x0,y0+.018,z0+.104)])
-    faces=[(i,(i+1)%len(plan),front) for i in range(len(plan))]
-    faces += [((i+1)%len(plan),i,front+1) for i in range(len(plan))]
-    blade=mesh_object('Faceted forged spearhead whose bevel follows the leaf edge',vertices,faces,m['brass'],parent)
-    blade.data.materials.append(m['bronze'])
-    for p in blade.data.polygons:
-        if (p.index+1)%3==0:
-            p.material_index=1
+    cross_sections=((.011,.012,.007),(.067,.021,.011),(.124,.039,.016),(.195,.025,.010),(.270,.0005,.0005))
+    rows=[[(x0+dx,y0+dy,z0+h) for dx,dy in ((-w,0),(0,-d),(w,0),(0,d))] for h,w,d in cross_sections]
+    blade=volume('Leaf-shaped spearhead, hammered steel on its bronze socket',rows,m['iron edge'],parent)
+    blade.data.materials.append(m['iron'])
+    for face in list(blade.data.polygons)[1:-1]:
+        face.material_index=int((face.index-1)%4 in (1,2))
 
 
 def boss(name,parent,place,m,r):
     rows=[]
-    for k,d in ((1.18,.0055),(1.13,.012),(1.03,.018),(.88,.026),(.66,.040),(.38,.048),(.02,.050)):
-        rows.append([place(cos(e)*r*k,sin(e)*r*k,d) for e in angle_span(0,tau,24)[:-1]])
-    obj=volume(name,rows,m['bronze'],parent,True)
+    for k,d in ((1.20,.004),(1.18,.011),(1.01,.016),(.87,.029),(.54,.046),(.23,.055)):
+        rows.append([place(cos(e)*r*k,sin(e)*r*k,d) for e in angle_span(0,tau,10)[:-1]])
+    obj=volume(name,rows,m['bronze'],parent)
     obj.data.materials.append(m['brass'])
     for face in obj.data.polygons:
-        if (face.index-1)//24 in (0,2):
+        if (face.index-1)//10 in (0,2):
             face.material_index=1
 
 
@@ -69,13 +64,13 @@ def sun_shield(a,m):
         curved=-.051*(1.-min(1.1,radial))
         return tuple(center+tilt@Vector((x,curved-d,z)))
     rim=[(.012,-.044),(.62,-.042),(.947,-.038),(1.010,-.025),(1.025,-.007),
-         (1.016,.006),(.975,.012),(.934,.009),(.903,.003),(.76,0.),(.55,0.),(.35,0.),(.18,0.),(.006,0.)]
-    rows=[[place(r*radius*cos(t),r*radius*sin(t),d) for t in angle_span(0,tau,50)[:-1]] for r,d in rim]
-    shield=volume('Single curved wooden aspis with a doubled cast bronze lip',rows,m['paint blue'],parent,True)
+         (1.013,.006),(.974,.012),(.934,.009),(.897,.002),(.69,0.),(.41,0.),(.18,0.),(.006,0.)]
+    rows=[[place(r*radius*cos(t),r*radius*sin(t),d) for t in angle_span(0,tau,20)[:-1]] for r,d in rim]
+    shield=volume('Hammered aspis with bevelled bronze rim and broad painted faces',rows,m['paint blue'],parent)
     for shade in (m['wood'],m['bronze'],m['brass'],m['gold dark']):
         shield.data.materials.append(shade)
     for face in shield.data.polygons:
-        row=(face.index-1)//50
+        row=(face.index-1)//20
         face.material_index=1 if row<2 else 4 if row==2 else 2 if row in (3,4,6) else 3 if row in (5,7) else 0
     shield_wash(shield,center,inverse,radius,radius,True)
     paint_losses('Soft turquoise and verdigris at the edges of the painted aspis',parent,place,
@@ -85,17 +80,28 @@ def sun_shield(a,m):
                   (.175,-.180,.014,.005,.72),(-.140,-.208,.022,.007,-.73),
                   (-.246,-.065,.010,.006,-.02)],
                  [m['scuffed turquoise'],m['verdigris']])
-    for n in range(8):
-        phase=n*tau/8+.18
-        ray=[(.054,-.116),(.102,-.10),(.149,-.147),(.205,-.113),(.271,-.002),(.230,-.054),
-             (.182,.065),(.120,.085),(.074,.088)]
-        outline=[(r*cos(phase+t),r*sin(phase+t)) for r,t in ray]
-        relief('Hammered rays of Thekla’s sun seal',parent,outline,lambda x,z,d:place(x,z,d+.0025),
-               m['brass'],m['bronze'],.0047,.052)
-        line=[place(r*cos(phase+t),r*sin(phase+t),.006) for r,t in ((.077,-.006),(.136,-.043),(.196,-.023),(.24,-.006))]
-        piping('Shallow engraved line on the curved ray',parent,line,.0015,m['bronze'],5)
+    for index in range(8):
+        phase=index*tau/8+.18
+        def ray(radius,angle,depth):
+            return place(radius*cos(phase+angle),radius*sin(phase+angle),depth)
+        # A central hammer ridge runs through each ray. The polygon edges turn with the shield.
+        long=index%2==0
+        tip=.268 if long else .239
+        sections=[(.050,-.012,.136,.003),(.103,-.015,.131,.009),
+                  (.164,.006,.119,.014),(.216,.058,.055,.009),(tip,.115,.003,.005)]
+        if not long:
+            sections[-2]=(.201,.066,.050,.008)
+        vertices=[]
+        for r,arc,width,lift in sections:
+            vertices.extend((ray(r,arc-width,.0023),ray(r,arc,lift),ray(r,arc+width,.0023)))
+        faces=[(i,i+3,i+4,i+1) for i in range(0,len(vertices)-3,3)]
+        faces.extend((i+1,i+4,i+5,i+2) for i in range(0,len(vertices)-3,3))
+        sun=mesh_object('Swept bronze ray chased into two faces',vertices,faces,m['brass'],parent)
+        sun.data.materials.append(m['bronze'])
+        for face in list(sun.data.polygons)[len(sections)-1:]:
+            face.material_index=1
     boss('Domed raised sun at the hub of the aspis',parent,place,m,.056)
-    for q in angle_span(0,tau,18)[:-1]:
+    for q in angle_span(0,tau,20)[:-1]:
         p=place(.296*cos(q),.296*sin(q),.015)
         obj=stone('Heat-darkened bronze pin in the shield rim',p,(.0048,.0041,.0048),m['brass'],parent,1)
         for f in obj.data.polygons:
@@ -106,37 +112,38 @@ def sun_shield(a,m):
 
 
 def eagle(parent,place,m):
-    def mark(name,outline,depth=.005):
-        relief(name,parent,outline,lambda x,z,d:place(x,z,d+.004),m['brass'],m['bronze'],depth,.052)
-    body=[(-.011,.096),(-.056,.158),(-.053,.201),(-.025,.235),(.025,.241),(.054,.225),(.053,.203),
-          (.021,.212),(.003,.181),(.048,.135),(.071,.081),(.063,.018),(.044,-.068),(.075,-.145),
-          (.030,-.128),(0.,-.166),(-.037,-.127),(-.071,-.145),(-.045,-.058),(-.066,-.010),(-.055,.066)]
-    mark('Curved eagle body, hooked face and feathers on the scutum',body,.008)
+    def mark(name,outline,pigment,depth,lift=.004):
+        relief(name,parent,outline,lambda x,z,d:place(x,z,d+lift),pigment,m['gold dark'],depth,.09)
     for side in (-1,1):
-        shoulder=[(.027,.132),(.075,.165),(.121,.190),(.172,.235),(.208,.268),(.206,.218),(.181,.173),
-                  (.153,.127),(.114,.071),(.072,.039),(.040,.048)]
-        mark('Cast raised shoulder of the eagle wing',[(side*x,z) for x,z in shoulder],.0068)
-        for i in range(6):
-            startx=.041+.008*i
-            startz=.087-.016*i
-            tipx=.209-.012*i
-            tipz=.179-.045*i
-            wing=[(startx,startz-.007),(startx+.026,startz+.020),(tipx-.024,tipz-.004),
-                  (tipx+.003,tipz+.013),(tipx-.009,tipz-.028),(tipx-.039,tipz-.043),(startx+.011,startz-.033)]
-            mark('Separated brass flight feather in the eagle wing',[(side*x,z) for x,z in wing],.0063)
-            piping('Engraved vane of a flight feather',parent,[place(side*(startx+.016),startz,.012),
-                place(side*(tipx-.031),tipz-.006,.013)],.0013,m['gold dark'],5)
-        for end in (-.022,0.,.027):
-            claw=[place(side*.034,-.056,.010),place(side*.077,-.060,.012),
-                  place(side*(.093+end),-.087,.009),place(side*(.081+end),-.096,.007)]
-            piping('Clawed foot on the emblemed scutum face',parent,claw,.0035,m['brass'],6)
-    for row in range(5):
-        for col in (-1,0,1):
-            x=col*.016+(row%2)*.003
-            z=.103-.029*row
-            line=[place(x-.007,z,.013),place(x,z-.010,.0145),place(x+.007,z,.013)]
-            piping('Short scale seam cut into the metal eagle breast',parent,line,.0014,m['gold dark'],5)
-    stone('Small dark eye on the emblemed eagle',place(.015,.221,.014),(.0031,.0016,.0031),m['gold dark'],parent,1)
+        tips=((.214,.239),(.217,.179),(.205,.122),(.186,.067),(.162,.018))
+        for i,(tipx,tipz) in reversed(list(enumerate(tips))):
+            rootx=.045+.005*i
+            rootz=.103-.029*i
+            wing=[(rootx,rootz-.018),(rootx+.025,rootz+.024),(tipx-.040,tipz-.011),
+                  (tipx,tipz),(tipx-.021,tipz-.042),(tipx-.055,tipz-.054),(rootx+.022,rootz-.027)]
+            mark('Individual swept flight feather',[(side*x,z) for x,z in wing],
+                 m['brass'] if i%2==0 else m['bronze'],.0044,.004+.0009*(4-i))
+        leading=[(.035,.105),(.064,.151),(.116,.176),(.159,.214),(.200,.255),(.188,.208),
+                 (.145,.161),(.108,.126),(.074,.088)]
+        mark('Raised leading edge of the eagle wing',[(side*x,z) for x,z in leading],m['brass'],.006,.011)
+        foot=[(.028,-.045),(.064,-.067),(.101,-.074),(.120,-.094),(.102,-.093),
+              (.089,-.107),(.083,-.093),(.068,-.098),(.061,-.084),(.026,-.073)]
+        mark('Talons curling back toward the tail',[(side*x,z) for x,z in foot],m['bronze'],.0033)
+    tail=[(-.037,-.051),(.040,-.052),(.066,-.134),(.030,-.122),(.002,-.161),(-.024,-.126),(-.067,-.139)]
+    mark('Fan of tail feathers',tail,m['brass'],.0055)
+    body=[(-.032,.152),(-.046,.188),(-.029,.222),(.014,.239),(.061,.217),(.051,.196),(.019,.204),
+          (.007,.169),(.035,.142),(.064,.095),(.055,.001),(.032,-.081),(-.006,-.095),(-.041,-.072),
+          (-.059,.004),(-.057,.080)]
+    mark('Hooked head and breast of the eagle',body,m['bronze'],.005,.010)
+    facets=[(-.033,.137),(-.004,.165),(.030,.124),(.050,.064),(.029,-.048),(-.004,-.072),(-.034,-.045),(-.048,.049)]
+    points=[place(x,z,.017) for x,z in facets]
+    points.append(place(-.008,.056,.033))
+    eagle_breast=mesh_object('Raised ridge through the chest of the eagle',points,
+                            [(i,len(facets),(i+1)%len(facets)) for i in range(len(facets))],m['brass'],parent)
+    eagle_breast.data.materials.append(m['bronze'])
+    for index in (2,3,4):
+        eagle_breast.data.polygons[index].material_index=1
+    stone('Eye sunk into the bronze head of the eagle',place(.021,.218,.019),(.0042,.0019,.0042),m['gold dark'],parent,1)
 
 
 def scutum(a,m):
@@ -149,25 +156,33 @@ def scutum(a,m):
     tilt=Euler((-.087,.041,-.105)).to_matrix()
     width=.251
     def place(x,z,d):
-        curve=.47*x*x
+        curve=.090*abs(x)+.101*max(0.,abs(x)-.110)
         return tuple(center+tilt@Vector((x,curve-d,z)))
-    outline=[(-width+.041,-height),(width-.039,-height),(width-.012,-height+.015),
-             (width,-height+.040),(width,height-.044),(width-.016,height-.019),(width-.042,height),
-             (-width+.042,height),(-width+.014,height-.019),(-width,height-.045),
-             (-width,-height+.041),(-width+.013,-height+.017)]
+    corner=.042
+    extent=width-.039
+    lower=[(x,-height) for x in (-extent,-.110,0.,.110,extent)]
+    upper=[(x,height) for x,_ in reversed(lower)]
+    outline=[*lower,(width,-height+corner),(width,height-corner),
+             *upper,(-width,height-corner),(-width,-height+corner)]
     rings=[[place(x*k,z*k,d) for x,z in outline] for k,d in ((.985,-.047),(1.,-.041),(1.009,-.011),(.992,.001))]
-    base=volume('Steam formed timber core of Marcus’s long scutum',rings,m['wood'],parent,True)
+    count=len(outline)
+    sides=[(row*count+i,row*count+(i+1)%count,(row+1)*count+(i+1)%count,(row+1)*count+i)
+           for row in range(len(rings)-1) for i in range(count)]
+    base=mesh_object('Chamfered frame around Marcus’s curved scutum',
+                     [point for ring in rings for point in ring],sides,m['wood'],parent)
     base.data.materials.append(m['gold dark'])
     for face in base.data.polygons:
-        if (face.index-1)//len(outline) in (1,2):
-            face.material_index=1
-    def panels(u,t):
-        z=height*(2*t-1)*.987
-        x=width*.984*(2*u-1)*(1-.078*abs(2*t-1)**18)
-        x+=.0013*sin(pi*t)*sin(23*u)
-        return place(x,z,.0028)
-    painted_hide=strips('Crimson painted hide fitted to the correctly curved wooden core',parent,[i/22 for i in range(23)],
-                        [i/30 for i in range(31)],panels,[m['paint red']],smooth=True)
+        face.material_index=int(face.index//count>=1)
+    near_corner=corner/(height*2)
+    levels=[0,near_corner,.18,.37,.60,.83,1.-near_corner,1.]
+    def panels(u,t,scale,depth):
+        z=height*(2*t-1)
+        bevel=max(0.,(abs(z)-height+corner)/corner)
+        x=(width-.039*bevel)*(2*u-1)
+        return place(x*scale,z*scale,depth)
+    painted_hide=strips('Crimson hide over five broad faces of the scutum',parent,
+                        [0,.09,.277,.5,.723,.91,1.],levels,
+                        lambda u,t:panels(u,t,.992,.0028),[m['paint red']],smooth=False)
     shield_wash(painted_hide,center,tilt.transposed(),width,height,False)
     paint_losses('Short worn brush strokes in the madder pigment around the eagle',parent,place,
                  [(-.182,.410,.037,.007,.58),(-.207,.386,.022,.007,.41),
@@ -176,7 +191,7 @@ def scutum(a,m):
                   (-.183,-.310,.037,.007,.73),(-.209,-.339,.024,.009,.70),
                   (.172,-.390,.039,.006,.48),(.204,-.424,.014,.007,-.41)],
                  [m['faded madder'],m['screened oxblood']])
-    piping('Rolled brass frame following the tall round cornered face',parent,
+    piping('Rolled bronze frame following the clipped corners of the scutum',parent,
            [place(x,z,.001) for x,z in [*outline,outline[0]]],.0109,m['bronze'],8)
     piping('Thin reflected highlight on the inside of the rim',parent,
            [place(x*.964,z*.978,.0047) for x,z in [*outline,outline[0]]],.0032,m['brass'],6)
@@ -187,8 +202,20 @@ def scutum(a,m):
     def emblem(x,z,d):
         return place(x*.91,z*.91-.021,d)
     eagle(parent,emblem,m)
-    center_handle=[place(-.048,-.045,-.046),place(-.022,-.017,-.104),place(.040,.030,-.106),place(.072,.058,-.046)]
-    tube('Fitted dark handle on the back of the scutum',parent,center_handle,[(.023,.009)]*4,m['hide'],8,across=(0,0,1))
+    seams=[0,.164,.169,.274,.332,.337,.5,.663,.668,.726,.831,.836,1.]
+    def boards(u,t):
+        if .164<u<.169 or .332<u<.337 or .663<u<.668 or .831<u<.836:
+            return 2
+        return 1 if .337<u<.663 else 0
+    strips('Bent timber slats visible on the inside of the shield',parent,seams,levels,
+           lambda u,t:panels(u,t,.985,-.047),[m['wood'],m['hide edge'],m['hide dark']],boards,smooth=False,reverse=True)
+    brace=[(-.157,-.027),(.147,-.029),(.163,-.011),(.147,.023),(-.139,.024),(-.160,.008)]
+    relief('Small carved wooden crosspiece under the handle',parent,brace,
+           lambda x,z,d:place(x,z,-.048-d),m['hide edge'],m['hide dark'],.016,.13)
+    center_handle=[place(-.075,-.018,-.055),place(-.040,-.011,-.097),
+                   place(.044,.002,-.097),place(.075,.016,-.055)]
+    tube('Leather-covered grip joined to the scutum crosspiece',parent,center_handle,
+         [(.020,.009)]*4,m['hide dark'],7,across=(0.,0.,1.),smooth=False)
 
 
 def gladius(a,m):

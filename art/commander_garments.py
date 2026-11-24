@@ -14,7 +14,7 @@ class Torso:
         self.bottom=a.joint('pelvis').z+.050
         self.top=a.joint('l-shoulder').z+(.058 if self.greek else .073)
         self.form=[(0.,.129,.095,-.014),(.19,.136,.095,-.014),(.48,.156,.114,-.008),
-                   (.69,.172,.119,-.013),(.83,.184,.101,-.009),(.91,.151,.093,-.009),(1.,.077,.071,-.018)]
+                   (.69,.172,.120,-.013),(.83,.183,.120,-.012),(.91,.185,.138,-.014),(1.,.085,.084,-.018)]
         if not self.greek:
             self.form=[(0.,.187,.124,-.002),(.19,.191,.121,-.001),(.48,.205,.131,-.003),
                        (.69,.225,.140,-.010),(.83,.233,.137,-.013),(.91,.190,.111,-.011),(1.,.084,.088,-.020)]
@@ -54,33 +54,43 @@ def pin(name,parent,p,r,mat):
 def fitted_tunic(a,b,m):
     body=a.part('Body')
     color=m['linen'] if b.greek else m['red lining']
-    rings=[[b.point(q,t,.002,.006) for q in angle_span(-pi/2,3*pi/2,32)[:-1]]
-           for t in (0,.075,.17,.26,.36,.46,.59,.66,.75,.83,.88,.94,1.)]
-    volume('Fitted pleated linen bodice' if b.greek else 'Folded wool under the lorica',rings,color,body,True)
     neck=a.joint('neck')
-    def collar(u,t):
-        q=tau*u-pi/2
-        width=(.091 if b.greek else .100)-.021*t
-        depth=(.094 if b.greek else .107)-.020*t
-        return width*cos(q),neck.y-.009+depth*sin(q),neck.z-.058+.065*t-.008*max(0.,-sin(q))
-    strips('Rolled fabric neckline following the neck into the shoulder',body,[i/28 for i in range(29)],
-           [0,.21,.53,.80,1.],collar,[color,m['linen light'] if b.greek else m['red']],
-           lambda u,t:int(t>.76),lining=.003)
+    angles=[i/24 for i in range(25)]
+    shoulder_width,shoulder_depth=(.183,.127) if b.greek else (.216,.139)
+    shoulder_z=neck.z-(.008 if b.greek else .017)
+    opening_width=.102 if b.greek else .112
+    def bodice(u,t):
+        q=tau*u+pi/2
+        if t<=.90:
+            return b.point(q,t,.003,.004)
+        forward=max(0.,-sin(q))
+        shoulder=Vector((shoulder_width*cos(q),neck.y-.014+shoulder_depth*sin(q),
+                         shoulder_z-(.055 if b.greek else .044)*forward))
+        if t<.95:
+            return Vector(b.point(q,.90,.003,.004)).lerp(shoulder,(t-.90)/.05)
+        rim=Vector((opening_width*cos(q),neck.y-.015+.101*sin(q),
+                    neck.z-.007-(.045 if b.greek else .027)*forward**1.7))
+        return shoulder.lerp(rim,(t-.95)/.05)
+    strips('Bound neckline and fitted yoke' if b.greek else 'Wool yoke closed underneath the cloak',
+           body,angles,[0,.10,.23,.38,.53,.66,.75,.83,.90,.95,.992,1.],bodice,
+           [color,m['linen shadow'] if b.greek else m['red']],lambda u,t:int(t>.992),lining=.004)
     if b.greek:
-        for i in range(3):
+        for index,(start,end,level) in enumerate(((-.121,.116,.52),(-.142,.129,.63),(-.129,.131,.75))):
             def fold(u,t):
-                x=-.139+.270*u
-                h=.47+.074*i+.17*u+.046*sin(pi*u)
-                p=b.front(x,h+.014*(2*t-1),.008+(.0025+sin(pi*t)*.004)*sin(pi*u))
-                return p
-            strips('Diagonal linen folds laid over the bust',body,[i/12 for i in range(13)],[0,.22,.56,1],fold,
-                    [m['linen'],m['linen light'],m['linen shadow']],lambda u,v:1 if .28<v<.55 else 2 if v>.82 else 0,
-                    lining=.003)
+                x=start+(end-start)*u
+                center=level+.117*u+.028*sin(pi*u)
+                width=(.056+.034*sin(pi*u))*(1.-.10*index)
+                lift=(.002+.017*(1.-t))*sin(pi*u)**.47
+                return b.front(x,center+width*(t-.5),.006+lift)
+            strips('Overlapping diagonal linen wrap',body,[0,.13,.31,.49,.70,.88,1.],[0,.19,.69,1.],
+                   fold,[m['linen'],m['linen light'],m['linen shadow']],
+                   lambda u,v:1 if v<.18 else 2 if v>.8 and u>.7 else 0,lining=.003,smooth=False)
         for start,end,thick in ((-.145,.111,.023),(.153,-.069,.018)):
-            path=[b.front(start*(1-u)+end*u,.90-.64*u,.021+.005*sin(pi*u)) for u in [i/16 for i in range(17)]]
-            tube('Leather harness following the shape of the tunic',body,path,[(thick/2,.0028)]*len(path),m['hide'],8,across=(1,0,.18))
-            stitched('Visible stitched edge along the chest strap',body,[(x-.003,y-.003,z) for x,y,z in path],.0017,m['hide edge'],19)
-        clasp=b.front(.028,.466,.032)
+            path=[b.front(start*(1-u)+end*u,.90-.65*u,.021+.013*sin(pi*u)) for u in [i/12 for i in range(13)]]
+            tube('Leather cross-belt against the linen',body,path,[(thick/2,.0036)]*len(path),
+                 m['hide'],6,across=(1,0,.18),smooth=False)
+            stitched('Stitched edge along the cross-belt',body,[(x-.003,y-.004,z) for x,y,z in path],.0017,m['hide edge'],17)
+        clasp=b.front(.026,.456,.037)
         pin('Cast button joining the cross-straps',body,clasp,.016,m['brass'])
 
 
@@ -113,7 +123,7 @@ def belt_and_skirt(a,b,m):
                        space-.037-hidden_hem*r+.010*r*sin(q*7.)) for q in angle_span(0,tau,36)[:-1]])
     volume('Continuous underlayer closing the skirt between its split panels',skirt,m['linen shadow'] if b.greek else m['red lining'],body,True)
     layers=((9,.216,.141,.238,m['linen shadow'],.27),(8,.230,.167,.200,m['linen'],.16)) if not split else (
-        (9,.238,.152,.281,m['linen shadow'],.00),(10,.253,.172,.241,m['red'],.28),(10,.265,.193,.180,m['dark iron'],.12))
+        (9,.238,.152,.268,m['red lining'],.00),(10,.255,.174,.235,m['red'],.28),(10,.265,.193,.188,m['hide dark'],.12))
     for row,(count,spread,depth,length,paint,shift) in enumerate(layers):
         for i in range(count):
             angle=(i+shift)*tau/count-pi/2
@@ -122,18 +132,21 @@ def belt_and_skirt(a,b,m):
                 q=angle+w+.035*t*sin(i*2.11)
                 inner=waist+.005+row*.016
                 outward=inner+(spread-inner)*t**.83
-                ripple=(.007 if split else .014)*cos((u-.42)*pi*1.65)*sin(pi*.62*t)
+                crest=max(0.,1.-1.9*abs(u-.38))
+                ripple=(.012 if split else .018)*crest*sin(pi*.62*t)
                 x=(outward+ripple)*cos(q)
                 initial=.106+row*.016
                 y=(initial+(depth-initial)*t+ripple)*sin(q)-.006
                 if not split:
                     y-=.025*t*max(0.,-sin(q))**.64
-                hem=(.013 if split else .026)*sin(.51+i*1.93)+(u-.45)*(.015 if split else .042)
+                hem=(.012 if split else .024)*sin(.51+i*1.93)+(u-.45)*(.021 if split else .043)
                 return x,y,space-.037-(length+hem)*t
-            pigment=[paint,m['bronze'] if split and row==2 else m['weft'],m['hide dark'] if split else m['linen shadow']]
-            strips('Overlapping lappet of the split skirt',body,[0,.13,.36,.64,.88,1.],
-                   [0,.18,.40,.71,.87,.933,.978,1.],hanging,pigment,
-                   lambda u,v:1 if .935<v<.978 else 2 if v>.978 else 0,lining=.008 if split and row==2 else .004)
+            edge=m['hide edge'] if split else m['weft']
+            pigment=[paint,edge,m['hide dark'] if split else m['linen shadow']]
+            strips('Cut and bevelled lappet of the split skirt',body,[0,.12,.38,.63,.89,1.],
+                   [0,.23,.54,.82,.936,.975,1.],hanging,pigment,
+                   lambda u,v:1 if .94<v<.975 else 2 if v>.975 else 0,
+                   lining=.008 if split and row==2 else .004,smooth=False,reverse=True)
             if row==len(layers)-1:
                 if split:
                     x,y,z=hanging(.5,.926)
@@ -149,23 +162,26 @@ def belt_and_skirt(a,b,m):
 def lorica(a,b,m):
     body=a.part('Body')
     colors=[m['iron'],m['iron edge'],m['dark iron']]
-    angles=[i/36 for i in range(37)]
+    angles=[0,.026,.113,.188,.25,.35,.43,.5,.57,.65,.75,.812,.887,.974,1.]
     for row in range(5):
         lower=.034+row*.154
         def bend(u,v):
             q=tau*u-pi/2
-            profile=lower+.185*v
-            z=b.z(profile)+.013*(1-abs(sin(q)))**1.3 + .004*cos(q*2.)
-            x,y,_=b.point(q,profile,.017+.013*(1-v)+.004*sin(pi*v))
+            centre=max(0.,1.-5.2*abs(cos(q)))
+            profile=lower+.181*v
+            z=b.z(profile)+.022*(1-abs(sin(q)))+.012*cos(q*2.)-.007*centre
+            lip=(.009 if v==0. else .017)*(1.-v)
+            x,y,_=b.point(q,profile,.017+lip+.006*centre)
             return x,y,z
-        strips('Overlapping curved hand-forged lorica band',body,angles,[0,.075,.17,.41,.78,.94,1.],
-               bend,colors,lambda u,v:1 if .056<v<.15 else 2 if v>.9 else 0,lining=.008)
+        strips('Forged lorica plate with a bevel and raised chest ridge',body,angles,[0,.12,.24,.73,1.],
+               bend,colors,lambda u,v:1 if v<.09 else 2 if v>.8 or .19<u<.34 or .70<u<.81 else 0,
+               lining=.009,smooth=False)
         for side in (-1,1):
-            x,y,z=b.front(side*(.055+.011*row),lower+.086,.041)
+            x,y,z=b.front(side*(.054+.010*row),lower+.079,.039)
             def setting(dx,dz,raise_by):
                 return x+dx,y-raise_by,z+dz
-            relief('Copper band clasp rolled around its rivets',body,[(-.029,-.007),(.026,-.009),(.033,.004),(.024,.012),(-.030,.010)],
-                   setting,m['bronze'],m['gold dark'],.007,.12)
+            relief('Bronze hinge with bevelled corners',body,[(-.026,-.008),(.024,-.009),(.031,.003),(.020,.012),(-.027,.010)],
+                   setting,m['bronze'],m['gold dark'],.008,.15)
             for short in (-.020,.021):
                 pin('Round copper rivet set into the clasp',body,setting(short,0,.008),.0053,m['brass'])
 
@@ -179,25 +195,34 @@ def cloak(a,b,m):
     lighter=m['teal light'] if greek else m['red fold']
     interior=m['teal lining'] if greek else m['red lining']
     side=1 if greek else -1
+    columns=[0,.027,.10,.20,.29,.38,.50,.61,.70,.80,.90,.972,1.]
+    rows=[0,.127,.29,.50,.68,.82,.904,.929,.954,.979,1.]
+    folds=(0.,.16,.49,-.32,.78,.30,-.64,-.12,1.,-.26,.33,.49,.4)
     def cape(u,t):
         w=2*u-1
         width=(.139+.183*t+.062*t*t) if greek else (.211+.161*t+.031*t*t)
-        x=w*width+side*(.086+.024*t+.059*t*t)
-        ridge=(.014+.044*t)*(sin(w*9.6+.7+t*1.4)+.36*cos(w*18.-.7+t*.9))
+        turn=.028*sin(pi*t)*(1.-w*w)+.043*sin(t*pi*.86)*sin(tau*u)
+        x=w*width+side*(.086+.024*t+.059*t*t)+turn
+        section=next(i for i,end in enumerate(columns[1:]) if u<=end)
+        low,high=columns[section:section+2]
+        blend=(u-low)/(high-low)
+        opening=.016+.048*t+.014*sin(pi*t)*sin(tau*u)
+        ridge=opening*(folds[section]*(1.-blend)+folds[section+1]*blend)
         y=.138+.044*t+.059*t*t+.052*t*(1-abs(w))+ridge
         y+=(.016 if greek else .046)*(1-.48*t)
-        z=z0-(.936 if greek else 1.074)*t+(.012+.064*t)*w-.077*w*w*t+.073*cos(3*w)*t*t
+        z=z0-(.936 if greek else 1.074)*t+(.012+.064*t)*w-.070*w*w*t+(.055*cos(3*w)+ridge*.49)*t*t
         return x,y,z
-    columns=[0,.028,.058,.115,.18,.27,.35,.42,.50,.59,.66,.74,.83,.883,.942,.972,1.]
-    rows=[0,.07,.17,.29,.44,.59,.71,.82,.902,.929,.95,.979,1.]
-    pattern=lambda u,t: int(.92<t<.979 or u<.028 or u>.972)
-    cloak_mesh=strips('Long shaped mantle with deep weighted folds and inset border',parent,columns,rows,
-                      cape,[main,edge,lighter,interior],pattern,lining=.007)
+    def pattern(u,t):
+        if .925<t<.979 or u<.027 or u>.972:
+            return 1
+        return 2 if .61<u<.70 and .29<t<.82 else 0
+    cloak_mesh=strips('Long mantle with four weighted folds and a woven border',parent,columns,rows,
+                      cape,[main,edge,lighter,interior],pattern,lining=.007,smooth=False)
     mantle_stamp(cloak_mesh,columns,rows,greek)
     path=[]
     for u in [i/34 for i in range(35)]:
         x,y,z=cape(u,.954)
-        path.append((x,y+.004,z))
+        path.append((x,y+.006,z))
     stitched('Repeated colored thread in the large hem',parent,path,.003,m['hem blue'] if greek else m['red lining'],33)
     if greek:
         for index in range(17):
@@ -206,24 +231,28 @@ def cloak(a,b,m):
             decor=[]
             for offset,level in steps:
                 x,y,z=cape(left+offset,level)
-                decor.append((x,y+.0039,z))
+                decor.append((x,y+.0056,z))
             piping('Dark meander woven into Thekla’s terracotta hem',parent,decor,.0018,m['hem blue'],5)
     def shawl(u,t):
-        across=(u-.5)*(.146+.018*t)
         if greek:
-            center=.118+.107*t**1.4
-            z=z0-.009-.721*t+(u-.5)*.043
-            y=-.128-.048*sin(pi*t)+.221*t*t+.014*cos(3*pi*u+t)
-            x=center+across
+            center=.118+.091*t**1.4
+            width=.145+.015*t-.031*sin(pi*t)
+            z=z0-.015-.712*t+(u-.5)*(.052-.088*t)
+            fold=(.014+.016*t)*max(0.,1.-3.4*abs(u-.40))
+            y=-.129-.048*sin(pi*t)+.211*t*t-fold
+            x=center+(u-.5)*width
         else:
-            x=-.191+.402*u+.028*(t-.2)*sin(pi*u)
-            z=z0-.021+.039*(2*u-1)**2-.044*u-(.084+.108*u)*t-.031*sin(pi*u)*sin(pi*t*.95)
-            y=-.160-.026*sin(pi*u)-.025*sin(t*3*pi+.34*u)-.019*t
+            x=-.197+.406*u+.041*(t-.2)*sin(pi*u)
+            z=z0-.027+.038*(2*u-1)**2-.034*u-(.089+.111*u)*t-.029*sin(pi*u)*sin(pi*t)
+            fold=.043*max(0.,1.-3.8*abs(t-.27-.13*u))+.028*max(0.,1.-5.1*abs(t-.77+.08*u))
+            y=-.168-.024*sin(pi*u)-fold-.005*t
         return x,y,z
-    shawl_columns=[0,.05,.14,.24,.36,.48,.60,.73,.86,.95,1.]
-    shawl_mesh=strips('Inscribed fold sweeping over the shoulder and across the cloak clasp',parent,
-                      shawl_columns,rows,shawl,[main,edge,lighter,interior],pattern if greek else None,lining=.009)
-    mantle_stamp(shawl_mesh,shawl_columns,rows,greek)
+    shawl_columns=[0,.028,.16,.31,.42,.60,.78,.938,.972,1.]
+    shawl_rows=[0,.13,.28,.43,.56,.70,.81,.91,.943,.978,1.]
+    shawl_mesh=strips('Broad diagonal folds gathered at the cloak clasp',parent,
+                      shawl_columns,shawl_rows,shawl,[main,edge,lighter,interior],
+                      pattern if greek else None,lining=.009,smooth=False,reverse=True)
+    mantle_stamp(shawl_mesh,shawl_columns,shawl_rows,greek)
     def bridge(u,t):
         if greek:
             p,q=Vector(shawl(u,0)),Vector(cape(.37+.46*u,0))
@@ -232,8 +261,8 @@ def cloak(a,b,m):
         loc=p.lerp(q,t)
         loc.z+=(.032 if greek else .039)*sin(pi*t)
         return tuple(loc)
-    strips('Wool gathered over the shoulder in heavy folds',parent,shawl_columns,[0,.16,.34,.58,.81,1.],bridge,
-           [main],lining=.008)
+    strips('Wool gathered over the shoulder in heavy folds',parent,shawl_columns,[0,.23,.51,.77,1.],bridge,
+           [main],lining=.008,smooth=False)
     x,y,z=shawl(.39 if greek else .092,.065)
     pin('Oversize cast fibula pinning the cloak at the front',a.part('Body'),(x,y-.012,z),.026,m['bronze'])
     pin('Scuffed bronze on the fibula face',a.part('Body'),(x,y-.023,z),.018,m['brass'])
@@ -265,17 +294,20 @@ def shoulder_armor(a,b,m):
         rows=2 if b.greek and sign<0 else 0 if b.greek else 3
         for i in range(rows):
             def plates(u,t):
-                q=-.66+3.16*u
-                radius=broad+.011+.005*(1-t)
-                drift=-.042+i*.045
-                z=drift+t*.059+.043*(1.-sin(pi*u))
-                return band(q,z,radius+.007*sin(pi*t)*sin(pi*u))
-            strips('Sculpted overlapping shoulder guard',parent,[i/14 for i in range(15)],[0,.07,.21,.52,.86,1.],plates,
+                q=-3.49+3.96*u
+                rib=max(0.,1.-2.1*abs(u-.50))
+                radius=broad+.010+.011*(1.-t)+.014*rib
+                drift=-.043+i*.045
+                z=drift+t*.058+.047*abs(2*u-1)**1.8+.015*t*rib
+                return band(q,z,radius+(.008 if .14<t<.85 else 0.))
+            strips('Overlapping shoulder plate with peaked face',parent,[0,.12,.25,.37,.54,.74,.89,1.],
+                   [0,.16,.72,.88,1.],plates,
                    [m['bronze'] if b.greek else m['dark iron'],m['brass'] if b.greek else m['iron edge'],m['gold dark']],
-                   lambda u,t:1 if t>.86 else 0,lining=.010)
-            for u in (.13,.72):
+                   lambda u,t:1 if t>.88 else 2 if u>.88 and b.greek else 0,
+                   lining=.010,smooth=False,reverse=sign<0)
+            for u in (.24,.83):
                 x,y,z=plates(u,.66)
-                pin('Shoulder guard fastener',parent,(x+sign*.003,y-.004,z+.001),.006,m['brass'])
+                pin('Shoulder guard fastener',parent,(x+sign*.003,y+(.004 if u<.50 else -.004),z+.002),.0055,m['brass'])
 
 
 def limb_gear(a,b,m):
@@ -286,11 +318,13 @@ def limb_gear(a,b,m):
         center=elbow.lerp(wrist,.79)
         direction=(wrist-elbow).normalized()
         width=.040 if b.greek else .050
-        bracer= tube('Shaped and wrapped wrist leather',parent,[center+direction*k for k in (-.049,-.043,-.023,.011,.026,.031)],
-                    [(width*r,width*r*.94) for r in (1.02,1.15,1.07,.89,.88,.76)],m['hide'],13,across=(0,0,1))
+        bracer=tube('Bevelled forearm cuff over leather',parent,
+                    [center+direction*k for k in (-.072,-.063,-.036,.010,.024,.030)],
+                    [(width*r,width*r*.94) for r in (1.02,1.18,1.10,.91,.87,.77)],m['hide'],9,across=(0,0,1),
+                    smooth=False)
         bracer.data.materials.append(m['bronze'] if sign<0 or not b.greek else m['hide edge'])
         for face in bracer.data.polygons:
-            if (face.index-1)//13 in (0,3):
+            if (face.index-1)//9 in (0,3):
                 face.material_index=1
         start=a.joint(source+'-knee')
         foot=a.joint(source+'-ankle')
@@ -302,14 +336,14 @@ def limb_gear(a,b,m):
                 p=foot.lerp(start,.13+t*.69)
                 radius=(.040+.025*t+.006*sin(pi*t))
                 p.x+=radius*sin(q)
-                p.y-=(radius+.009)*cos(q)+.009*(1-abs(2*u-1))
+                p.y-=(radius+.009)*cos(q)+.018*(1-abs(2*u-1))
                 p.z+=.035*t**3*cos(q)**4-.011*(1-t)*cos(q)
                 return tuple(p)
-            cols=[0,.09,.18,.29,.42,.50,.59,.72,.82,.91,1.]
-            rows=[0,.043,.16,.34,.56,.75,.89,.96,1.]
-            strips('Hand formed greave with the central bronze ridge',parent,cols,rows,shin,
-                   [m['bronze'],m['brass'],m['gold dark']],lambda u,t:1 if .43<u<.58 or t>.96 else 2 if u<.10 or u>.91 else 0,
-                   lining=.009)
+            cols=[0,.11,.31,.46,.53,.71,.90,1.]
+            rows=[0,.058,.21,.53,.78,.943,1.]
+            strips('Bronze greave struck into a sharp central keel',parent,cols,rows,shin,
+                   [m['bronze'],m['brass'],m['gold dark']],
+                   lambda u,t:1 if .46<u<.53 or t>.95 else 2 if u<.10 or u>.91 else 0,lining=.009,smooth=False)
             for t in (.18,.74):
                 center=foot.lerp(start,.13+t*.68)
                 rr=.048+.021*t
@@ -323,10 +357,10 @@ def limb_gear(a,b,m):
             heights=[.014,.038,.106,.189,.268,.294]
             width=[.046,.050,.054,.062,.066,.063]
             shaft=tube('Worn soft leather boot shaft with ankle crease',parent,[foot+axis*t for t in heights],
-                       [(r,r*.92) for r in width],m['hide dark'],17,across=(1,0,0))
+                       [(r,r*.92) for r in width],m['hide dark'],10,across=(1,0,0),smooth=False)
             shaft.data.materials.append(m['hide edge'])
             for face in shaft.data.polygons:
-                if (face.index-1)//17 in (0,4):
+                if (face.index-1)//10 in (0,4):
                     face.material_index=1
             path=[]
             for i in range(12):
@@ -348,12 +382,17 @@ def footwear(a,source,parent,m,sandal):
     length=(front-rear).length+.031
     sole=[(-.036,0.),(.035,.012),(.049,.169),(.045,.563),(.053,.777),(.039,.960),
           (.013,1.),(-.027,.989),(-.047,.893),(-.053,.745),(-.038,.50),(-.040,.188)]
-    amounts=[(.008,.96),(.015,1.0),(.023,.98),(.029,.94)] if sandal else [(.005,.94),(.016,1.),(.029,1.),(.044,.93),(.078,.71),(.111,.50)]
+    amounts=[(.008,.96),(.015,1.0),(.023,.98),(.029,.94)] if sandal else [(.005,.94),(.016,1.),(.032,1.),(.054,.90),(.079,.72),(.110,.52)]
     rings=[]
     for z,k in amounts:
         rings.append([tuple(Vector((rear.x,rear.y,z))+width*(w*k*(1 if sandal else 1.13))+
                             tangent*(length*((t-.35)*k+.35))) for w,t in sole])
-    volume('Stitched calfskin sandal sole' if sandal else 'Rounded leather boot toe joined to the shaft',rings,m['hide'] if sandal else m['hide dark'],parent,True)
+    shoe=volume('Stitched calfskin sandal sole' if sandal else 'Bevelled boot toe joined to the shaft',
+                rings,m['hide'] if sandal else m['hide dark'],parent,sandal)
+    if not sandal:
+        shoe.data.materials.append(m['hide'])
+        for face in list(shoe.data.polygons)[1:len(sole)+1]:
+            face.material_index=1
     if sandal:
         for center in (.37,.62,.82):
             path=[]

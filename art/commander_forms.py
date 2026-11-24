@@ -8,14 +8,14 @@ from geometry import mesh_object, volume
 
 
 FINISHES = {
-    'bronze': ('946141', .61, .51, .25), 'brass': ('c59350', .57, .46, .22),
-    'gold dark': ('744b34', .45, .54, .14), 'iron': ('323a48', .43, .57, .22),
-    'iron edge': ('71828f', .46, .49, .14), 'dark iron': ('272e3e', .44, .58, .22),
+    'bronze': ('8e5c3b', .53, .56, .22), 'brass': ('c59350', .57, .46, .22),
+    'gold dark': ('744b34', .45, .54, .14), 'iron': ('323a48', .42, .62, .19),
+    'iron edge': ('71828f', .46, .49, .14), 'dark iron': ('272e3e', .43, .62, .18),
     'linen': ('cab797', 0, .81, .11), 'linen light': ('e1cba6', 0, .77, .09),
     'linen shadow': ('a38b6c', 0, .82, .13), 'weft': ('ddbc8c', 0, .78, .11),
     'teal': ('214b50', 0, .86, .24), 'teal light': ('3a6c64', 0, .83, .21),
     'teal lining': ('202d38', 0, .87, .22), 'paint blue': ('215456', .07, .74, .20),
-    'red': ('6e292e', 0, .85, .25), 'red fold': ('8a3d3c', 0, .84, .23),
+    'red': ('67262c', 0, .87, .25), 'red fold': ('893a3a', 0, .85, .23),
     'red lining': ('3f2637', 0, .86, .20), 'paint red': ('782f2c', .06, .73, .20),
     'hem red': ('ac674d', 0, .80, .18), 'hem blue': ('34434a', 0, .78, .15),
     'verdigris': ('58847b', 0, .87, .08), 'scuffed turquoise': ('487473', 0, .85, .10),
@@ -47,12 +47,14 @@ def paints():
     return result
 
 
-def strips(name, parent, columns, rows, sample, pigments, assign=None, lining=.0, smooth=True):
+def strips(name, parent, columns, rows, sample, pigments, assign=None, lining=.0, smooth=True, reverse=False):
     """Sample a cloth pattern or a sheet of raised metal with real drape at each grid point."""
     verts=[sample(s,t) for t in rows for s in columns]
     width=len(columns)
     faces=[(a,a+1,a+width+1,a+width) for row in range(len(rows)-1)
            for column in range(width-1) for a in (row*width+column,)]
+    if reverse:
+        faces=[face[::-1] for face in faces]
     obj=mesh_object(name,verts,faces,None,parent,smooth)
     for pigment in pigments:
         obj.data.materials.append(pigment)
@@ -102,6 +104,11 @@ def relief(name,parent,outline,place,front,rim=None,thickness=.004,bevel=.06):
             j=(i+1)%count
             faces.append((lower+i,lower+j,upper+j,upper+i))
     faces.append(tuple(range(2*count,3*count)))
+    front_points=[Vector(p) for p in pts[-count:]]
+    normal=sum((a.cross(b) for a,b in zip(front_points,front_points[1:]+front_points[:1])),Vector())
+    outward=Vector(place(*center,thickness))-Vector(place(*center,0.))
+    if normal.dot(outward)<0.:
+        faces=[face[::-1] for face in faces]
     obj=mesh_object(name,pts,faces,front,parent)
     if rim:
         obj.data.materials.append(rim)
