@@ -63,16 +63,26 @@ verbundenen Vercel-Blob-Speicher. Alle Zugriffe auf Spielstände laufen serverse
 Der Browser sendet Eingaben und rendert die vom Rust-Kern berechneten
 Spielstände. Derselbe Zustand lässt sich nach einer unterbrochenen Verbindung wieder laden.
 
+## Grafik und Blender-Quellen
+
+Die [Studiotafeln](art/references) enthalten die Entwürfe für Figuren, Kreaturen
+und Festungen in mehreren Ansichten. Die [Figurenansichten](art/references/blender-figuren.webp)
+zeigen die fertigen Blender-Modelle. Die editierbaren Blender-Szenen liegen in
+[`art/blend`](art/blend). Jede Arena wird mit berechneten Licht- und
+Kontaktschatten in ein Mesh exportiert. Truppen, Helden, Gegner und Gebäude
+verwenden Armaturen. Studiolichter und Kameras gehören zu den Blender-Szenen
+und werden für die Porträts verwendet.
+
 Mit Blender 4.3 und FFmpeg lassen sich die Assets erneut erzeugen.
 
 ```sh
 npm run art
-blender -b -t 4 --python art/mural.py
 python3 art/sound.py
 ```
 
 ## Referenzen
 
+- [Nililane mit Spielansichten der drei Regionen](https://github.com/bthginfo/Nililane)
 - [Bevy WebGL2 und glTF](https://bevy.org/examples/)
 - [Blender glTF und Animationsexport](https://docs.blender.org/manual/en/latest/addons/scene_gltf2.html)
 - [Vercel WebSockets und Wiederverbindung](https://vercel.com/docs/functions/websockets)

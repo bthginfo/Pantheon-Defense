@@ -48,8 +48,8 @@ pub fn play_arena(mobile: bool) {
     app.insert_resource(Graphics { mobile })
         .insert_resource(ClearColor(Color::srgb_u8(25, 70, 77)))
         .insert_resource(AmbientLight {
-            color: Color::srgb_u8(222, 232, 236),
-            brightness: 210.,
+            color: Color::srgb_u8(208, 225, 245),
+            brightness: 315.,
             ..default()
         })
         .insert_resource(bevy::pbr::DirectionalLightShadowMap { size: 768 })
@@ -228,6 +228,8 @@ struct Shared {
     rays: [Handle<StandardMaterial>; 6],
     ring: Handle<StandardMaterial>,
     team: [Handle<StandardMaterial>; 2],
+    footprint: Handle<Mesh>,
+    contact: Handle<StandardMaterial>,
 }
 
 fn p3(point: Point, y: f32) -> Vec3 {
@@ -280,6 +282,14 @@ fn setup(
         }),
         team: [Color::srgb(0.28, 0.86, 0.83), Color::srgb(0.96, 0.53, 0.39)]
             .map(|color| mats.add(simple(color, 0.28))),
+        footprint: meshes.add(circuit_art::soft_shadow()),
+        contact: mats.add(StandardMaterial {
+            base_color: Color::WHITE,
+            alpha_mode: AlphaMode::Blend,
+            unlit: true,
+            cull_mode: None,
+            ..default()
+        }),
     };
 
     commands.spawn((
@@ -302,13 +312,13 @@ fn setup(
     ));
     commands.spawn((
         DirectionalLight {
-            color: Color::srgb_u8(255, 231, 190),
-            illuminance: 8_600.,
+            color: Color::srgb_u8(255, 237, 212),
+            illuminance: 7_900.,
             shadows_enabled: !graphics.mobile,
             shadow_normal_bias: 0.37,
             ..default()
         },
-        Transform::from_xyz(-4., 12., 5.).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(-6.8, 12., 8.2).looking_at(Vec3::ZERO, Vec3::Y),
         CascadeShadowConfigBuilder {
             num_cascades: 1,
             maximum_distance: 64.,
@@ -383,7 +393,7 @@ fn pull_game(
             commands.entity(ent).despawn();
         }
         arena.scenery = if game.on_circuit() {
-            circuit_art::build(&mut commands, &mut meshes, &mut mats, &shared, &game.theme)
+            circuit_art::build(&mut commands, &asset_server, &game.theme)
         } else {
             commands.insert_resource(ClearColor(Color::srgb_u8(25, 70, 77)));
             Scenery::new(
@@ -475,7 +485,11 @@ fn pull_game(
                 &arena,
                 &piece.actor,
                 position,
-                if piece.owner == 0 { -0.3 } else { 0.32 },
+                if piece.owner == 0 {
+                    -0.32
+                } else {
+                    std::f32::consts::PI + 0.32
+                },
                 false,
             );
             let stack = piece.stack;
@@ -489,13 +503,24 @@ fn pull_game(
                         figure.clip_until = now + 0.98;
                     }
                 });
-            commands.entity(entity).with_children(|parent| {
-                parent.spawn((
-                    Mesh3d(shared.disk.clone()),
-                    MeshMaterial3d(shared.team[piece.owner].clone()),
-                    Transform::from_xyz(0., -0.055, 0.).with_scale(Vec3::new(0.48, 0.03, 0.48)),
-                ));
-            });
+            if game.on_circuit() {
+                circuit_art::footwork(
+                    &mut commands,
+                    &shared,
+                    entity,
+                    -0.019,
+                    Vec2::new(0.64, 0.40),
+                    Some(piece.owner),
+                );
+            } else {
+                commands.entity(entity).with_children(|parent| {
+                    parent.spawn((
+                        Mesh3d(shared.disk.clone()),
+                        MeshMaterial3d(shared.team[piece.owner].clone()),
+                        Transform::from_xyz(0., -0.055, 0.).with_scale(Vec3::new(0.48, 0.03, 0.48)),
+                    ));
+                });
+            }
             arena.figures.insert(piece.id, entity);
         }
     }
@@ -554,6 +579,14 @@ fn pull_game(
                 yaw,
                 true,
             );
+            if game.on_circuit() {
+                let size = if enemy.kind == "hound" {
+                    Vec2::new(0.44, 0.56)
+                } else {
+                    Vec2::new(0.46, 0.31)
+                };
+                circuit_art::footwork(&mut commands, &shared, entity, -0.010, size, None);
+            }
             commands
                 .entity(entity)
                 .queue(move |mut entity: EntityWorldMut| {
@@ -596,26 +629,22 @@ fn pull_game(
         };
         let lifetime = (shot.impact.saturating_sub(shot.started) as f64) * 0.05;
         let remaining = ((shot.impact.saturating_sub(game.tick) as f64) * 0.05).max(0.16);
-        let entity = spawn_figure(
-            &mut commands,
-            &asset_server,
-            &gltfs,
-            &arena,
-            asset,
-            start,
-            facing(target - start),
-            false,
-        );
-        commands.entity(entity).remove::<Figure>().insert((
-            NotShadowCaster,
-            Projectile {
-                from: start,
-                to: target,
-                began: now - (lifetime - remaining).max(0.) * 0.8,
-                ends: now + remaining,
-                arc: if shot.attack == "guard" { 0.18 } else { 0.76 },
-            },
-        ));
+        let scene = figure_scene(&asset_server, &gltfs, &arena, asset);
+        let entity = commands
+            .spawn((
+                SceneRoot(scene),
+                Transform::from_translation(start)
+                    .with_rotation(Quat::from_rotation_y(facing(target - start))),
+                NotShadowCaster,
+                Projectile {
+                    from: start,
+                    to: target,
+                    began: now - (lifetime - remaining).max(0.) * 0.8,
+                    ends: now + remaining,
+                    arc: if shot.attack == "guard" { 0.18 } else { 0.76 },
+                },
+            ))
+            .id();
         // Projectiles already have their Blender mesh as a SceneRoot. Their travel is driven by the hit tick.
         arena.shots.insert(shot.id, entity);
     }
@@ -781,12 +810,7 @@ fn spawn_figure(
     } else {
         1.0
     };
-    let gltf = arena.assets.get(id).and_then(|handle| gltfs.get(handle));
-    let scene = gltf
-        .and_then(|asset| asset.default_scene.clone())
-        .unwrap_or_else(|| {
-            assets.load(GltfAssetLabel::Scene(0).from_asset(format!("models/{id}.glb")))
-        });
+    let scene = figure_scene(assets, gltfs, arena, id);
     commands
         .spawn((
             SceneRoot(scene),
@@ -812,6 +836,22 @@ fn spawn_figure(
         ))
         .observe(find_player)
         .id()
+}
+
+fn figure_scene(
+    assets: &AssetServer,
+    gltfs: &Assets<Gltf>,
+    arena: &Arena,
+    id: &str,
+) -> Handle<Scene> {
+    arena
+        .assets
+        .get(id)
+        .and_then(|handle| gltfs.get(handle))
+        .and_then(|asset| asset.default_scene.clone())
+        .unwrap_or_else(|| {
+            assets.load(GltfAssetLabel::Scene(0).from_asset(format!("models/{id}.glb")))
+        })
 }
 
 fn find_player(
@@ -1163,12 +1203,12 @@ fn orient_camera(
     };
     if arena.rule_version >= sim::CIRCUIT_RULES {
         let side = if viewer == 0 { 1. } else { -1. };
-        *transform =
-            Transform::from_xyz(0.32 * side, 26.8, 19.1 * side).looking_at(Vec3::ZERO, Vec3::Y);
+        *transform = Transform::from_xyz(2.02 * side, 25.7, 21.4 * side)
+            .looking_at(Vec3::new(0., 0.04, 0.), Vec3::Y);
         *projection = Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::AutoMin {
-                min_width: 15.9,
-                min_height: 17.6,
+                min_width: 17.35,
+                min_height: 17.05,
             },
             ..OrthographicProjection::default_3d()
         });

@@ -27,6 +27,7 @@ let pending = null;
 let arena = null;
 let arenaInit = null;
 let renderedGame = null;
+let loadedBoard = '';
 let socket = null;
 let polling = null;
 let restore = null;
@@ -326,6 +327,10 @@ function openMatch(packet) {
   slotSignature = '';
   legendSignature = '';
   delete $('stage').dataset.rendered;
+  if (loadedBoard!==boardAsset(packet.game)) {
+    delete $('stage').dataset.models;
+    $('render-notice').hidden=false;
+  }
   delete $('stage').dataset.resolution;
   slowSamples=0;
   fastSamples=0;
@@ -448,6 +453,7 @@ function paintMatch() {
   $('gold').textContent = number(player.gold);
   $('kills').textContent = `${game.kills} besiegt`;
   $('stage').style.setProperty('--theme-accent', colorThemes[game.theme]);
+  $('stage').dataset.theme=game.theme;
   const membership=JSON.stringify([host.name,guest?.name,viewer]);
   if (legendSignature!==membership) {
     legendSignature=membership;
@@ -556,7 +562,7 @@ function paintOrders() {
   const result = user?.records?.find(record => record.id === room.id);
   const drawCost = game.challenge === 'levy' ? 50 : 65;
   const circuit=isCircuit(game);
-  const boardReady=$('stage').dataset.rendered==='true';
+  const boardReady=$('stage').dataset.rendered==='true' && (!circuit || loadedBoard===boardAsset(game));
   const signature = JSON.stringify([boardReady,result?.xp,result?.seals,game.phase,game.wave,player.gold,player.essence,
     player.temper,player.favor,player.recruits,player.reserve,game.prepared,joined,selected,pending,menuPane,room.invite,
     game.pieces.map(p=>[p.id,p.slot,p.rank,p.tier,p.stack,Math.max(0,Math.ceil((p.cast_ready-game.tick)/20))]),locked,isMuted()]);
@@ -732,15 +738,25 @@ window.addEventListener('pantheon-frame-rate',event=>{
   stage.dataset.renderFps=event.detail;
   if(!isCircuit(room?.game)||!handheld()||!stage.dataset.rendered||document.hidden)return;
   const fps=Number(event.detail);
-  slowSamples=fps<24 ? slowSamples+1 : 0;
+  slowSamples=fps<16 ? slowSamples+1 : 0;
   fastSamples=fps>53 ? fastSamples+1 : 0;
   if(slowSamples>=3) stage.dataset.resolution='performance';
   else if(fastSamples>=5 && !stage.dataset.resolution && devicePixelRatio>1.25) stage.dataset.resolution='sharp';
 });
-window.addEventListener('pantheon-board-models', () => { $('stage').dataset.models = 'ready'; });
+function boardAsset(game) {
+  return isCircuit(game) ? game.theme : 'gate';
+}
+
+window.addEventListener('pantheon-board-models', event => {
+  loadedBoard=event.detail;
+  if (room && loadedBoard===boardAsset(room.game)) {
+    $('stage').dataset.models='ready';
+    if ($('stage').dataset.rendered) markRendered();
+  }
+});
 function markRendered() {
   $('stage').dataset.rendered = 'true';
-  $('render-notice').hidden = true;
+  $('render-notice').hidden = !room || !isCircuit(room.game) || loadedBoard===boardAsset(room.game);
   paintOrders();
 }
 

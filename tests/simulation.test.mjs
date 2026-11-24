@@ -20,11 +20,22 @@ test('exported Blender actors include the clips used by Bevy', () => {
       ? ['Idle','Attack','Cast']
       : ['Idle','Walk','Attack','Cast','Hit','Death','Spawn','Ascend','Celebrate'];
     for (const clip of needed) assert.ok(clips.has(clip),`${actor.id}: ${clip}`);
-    if (actor.kind!=='building') {
-      assert.equal(asset.skins.length,1,actor.id);
-      assert.equal(asset.meshes.length,1,actor.id);
-      assert.equal(asset.meshes[0].primitives.length,1,actor.id);
-    }
+    assert.equal(asset.skins.length,1,actor.id);
+    assert.equal(asset.meshes.length,1,actor.id);
+    assert.equal(asset.meshes[0].primitives.length,1,actor.id);
+    const attributes=asset.meshes[0].primitives[0].attributes;
+    assert.ok(Number.isInteger(attributes.COLOR_0) && Number.isInteger(attributes.JOINTS_0),actor.id);
+  }
+});
+
+test('the three Blender arenas ship as vertex-lit static meshes', () => {
+  for (const {id} of catalog.themes) {
+    const arena=model(`arena_${id}`);
+    assert.equal(arena.meshes.length,1,id);
+    assert.equal(arena.meshes[0].primitives.length,1,id);
+    assert.ok(Number.isInteger(arena.meshes[0].primitives[0].attributes.COLOR_0),id);
+    assert.ok(arena.materials[0].extensions.KHR_materials_unlit,id);
+    assert.ok(!arena.animations?.length,id);
   }
 });
 

@@ -1,14 +1,14 @@
 {
   "name": "pantheon-defense",
   "private": true,
-  "version": "4.0.0",
+  "version": "5.0.0",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "node scripts/dev.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:e2e": "playwright test",
-    "art": "blender -b -t 4 --python art/forge.py -- --structures && blender -b -t 4 --python art/cast.py"
+    "art": "blender -b -t 4 --python-exit-code 1 --python art/arenas.py && blender -b -t 4 --python-exit-code 1 --python art/cast.py && blender -b -t 4 --python-exit-code 1 --python art/fortifications.py"
   },
   "engines": {
     "node": ">=22"
