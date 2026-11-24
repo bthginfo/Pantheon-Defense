@@ -1,0 +1,12 @@
+[workspace]
+members = ["crates/simulation", "crates/arena"]
+resolver = "3"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 8
+strip = "debuginfo"
+
+[profile.dev.package."*"]
+opt-level = 2

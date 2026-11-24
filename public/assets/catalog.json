@@ -1,0 +1,54 @@
+{
+  "themes": [
+    {"id":"aegean","name":"Griechenland","map":"Tor der Ägäis","caption":"Kalkstein, Olivenhaine und zwei Anstiege zum Sonnentor.","accent":"#efb76a","unlock":1},
+    {"id":"rome","name":"Rom","map":"Die Rote Zitadelle","caption":"Ziegelarkaden und Zypressen an der Grenze des Reichs.","accent":"#f3816b","unlock":2},
+    {"id":"japan","name":"Japan","map":"Der Nebelpass","caption":"Zwei Pfade zwischen Zedern und verwitterten Schreintoren.","accent":"#9fdbba","unlock":3}
+  ],
+  "actors": [
+    {"id":"hoplite","theme":"aegean","kind":"troop","name":"Hoplitenwache","role":"Kontrolle","note":"Hält die Spitze einer Welle mit kurzen Schildstößen auf.","attack":"guard","cost":65,"unlock":1,"damage":16,"range":2.9,"period":19,"effect":0.28,"color":"#db9d4c"},
+    {"id":"slinger","theme":"aegean","kind":"troop","name":"Insel-Schleuderer","role":"Fernkampf","note":"Schnelle Steinwürfe erreichen beide Anstiege von der Mitte aus.","attack":"stone","cost":65,"unlock":1,"damage":12,"range":5.6,"period":15,"effect":0,"color":"#d0b28a"},
+    {"id":"oracle","theme":"aegean","kind":"troop","name":"Orakel von Delos","role":"Flächenschaden","note":"Lässt einen Sonnenfunken zwischen gedrängten Gegnern platzen.","attack":"sun","cost":65,"unlock":2,"damage":18,"range":5.3,"period":30,"effect":1.6,"color":"#f3cc77"},
+    {"id":"peltast","theme":"aegean","kind":"troop","name":"Peltastenläufer","role":"Panzerbruch","note":"Seine Wurfspeere durchdringen schwere Panzerung.","attack":"pierce","cost":65,"unlock":3,"damage":24,"range":5.4,"period":25,"effect":0,"color":"#a3d3c0"},
+    {"id":"ballista","theme":"aegean","kind":"building","name":"Ägäis-Balliste","role":"Panzerbruch","note":"Schwere Bolzen gegen Elitegegner und Bosse.","attack":"pierce","cost":145,"unlock":1,"damage":42,"range":7.1,"period":33,"effect":0,"color":"#e6a650"},
+    {"id":"sun_shrine","theme":"aegean","kind":"building","name":"Sonnenaltar","role":"Flächenschaden","note":"Brennt eine Gruppe auf demselben Pfad nieder.","attack":"sun","cost":155,"unlock":1,"damage":27,"range":5.4,"period":37,"effect":2.0,"color":"#fdd486"},
+    {"id":"beacon","theme":"aegean","kind":"building","name":"Hafenfeuer","role":"Kontrolle","note":"Trifft schnell und bremst den vordersten Feind.","attack":"frost","cost":115,"unlock":3,"damage":10,"range":5.8,"period":18,"effect":0.42,"color":"#72cfcf"},
+    {"id":"thekla","theme":"aegean","kind":"hero","name":"Thekla","role":"Phalanx","note":"Ihre Phalanx beschädigt und stoppt alle Gegner in der Nähe der gewählten Position.","attack":"guard","skill":"phalanx","cost":185,"unlock":1,"damage":33,"range":4.3,"period":20,"effect":0.3,"color":"#f6c46d"},
+    {"id":"ilios","theme":"aegean","kind":"hero","name":"Ilios","role":"Sonnensturz","note":"Ruft ein Sonnenfeuer herab, das alle Feinde im Zielkreis verbrennt.","attack":"sun","skill":"meteor","cost":200,"unlock":4,"damage":34,"range":6,"period":35,"effect":2.1,"color":"#ffad63"},
+
+    {"id":"legionary","theme":"rome","kind":"troop","name":"Legionswache","role":"Kontrolle","note":"Ein schwerer Rechteckschild hält die vordersten Gegner fest.","attack":"guard","cost":65,"unlock":2,"damage":17,"range":3.1,"period":20,"effect":0.34,"color":"#e78a69"},
+    {"id":"veles","theme":"rome","kind":"troop","name":"Velites","role":"Panzerbruch","note":"Leichte Wurfspeere bestrafen gepanzerte Vorhuten.","attack":"pierce","cost":65,"unlock":2,"damage":18,"range":5.7,"period":20,"effect":0,"color":"#efb476"},
+    {"id":"signifer","theme":"rome","kind":"troop","name":"Standartenträger","role":"Unterstützung","note":"Die Standarte erhöht das Angriffstempo naher Verbündeter.","attack":"rally","cost":65,"unlock":3,"damage":13,"range":4.9,"period":21,"effect":3.3,"color":"#f1bd65"},
+    {"id":"vesta","theme":"rome","kind":"troop","name":"Vestalin","role":"Flächenschaden","note":"Schleudert Glut in dicht stehende Gegner.","attack":"sun","cost":65,"unlock":4,"damage":20,"range":5.8,"period":29,"effect":1.9,"color":"#fca177"},
+    {"id":"scorpio","theme":"rome","kind":"building","name":"Scorpio","role":"Panzerbruch","note":"Schnelles Torsionsgeschütz für lange Sichtachsen.","attack":"pierce","cost":140,"unlock":2,"damage":33,"range":7.4,"period":24,"effect":0,"color":"#e98c62"},
+    {"id":"brazier","theme":"rome","kind":"building","name":"Glutbastion","role":"Flächenschaden","note":"Sprengt eine Gruppe an der nächsten Wegkurve.","attack":"sun","cost":165,"unlock":2,"damage":32,"range":5.4,"period":39,"effect":2.15,"color":"#f9a45f"},
+    {"id":"standard","theme":"rome","kind":"building","name":"Feldstandarte","role":"Unterstützung","note":"Beschleunigt die Angriffe aller Verbündeten in ihrer Nähe.","attack":"rally","cost":120,"unlock":4,"damage":14,"range":5.2,"period":23,"effect":4,"color":"#ecbf68"},
+    {"id":"marcus","theme":"rome","kind":"hero","name":"Marcus","role":"Kastellsalve","note":"Sein Signal entfesselt eine Salve und stärkt Bauten am Ziel.","attack":"pierce","skill":"salvo","cost":185,"unlock":2,"damage":38,"range":6.2,"period":24,"effect":0,"color":"#faac79"},
+    {"id":"livia","theme":"rome","kind":"hero","name":"Livia","role":"Eid der Wacht","note":"Stellt Torleben wieder her und verlangsamt eine anrückende Gruppe.","attack":"rally","skill":"oath","cost":190,"unlock":5,"damage":29,"range":5.6,"period":18,"effect":4.4,"color":"#f7bc9a"},
+
+    {"id":"ashigaru","theme":"japan","kind":"troop","name":"Yari-Wache","role":"Kontrolle","note":"Stoppt an der Spitze einer Formation einzelne Gegner.","attack":"guard","cost":65,"unlock":3,"damage":18,"range":3.7,"period":22,"effect":0.33,"color":"#a3cb9c"},
+    {"id":"yumi","theme":"japan","kind":"troop","name":"Yumi-Schütze","role":"Fernkampf","note":"Sein hoher Bogen deckt weite Kurven ab.","attack":"arrow","cost":65,"unlock":3,"damage":16,"range":6.4,"period":21,"effect":0,"color":"#93d1b0"},
+    {"id":"monk","theme":"japan","kind":"troop","name":"Glockenmönch","role":"Kontrolle","note":"Schickt einen Nebelstoß über die vordersten Feinde.","attack":"frost","cost":65,"unlock":4,"damage":16,"range":5.4,"period":24,"effect":0.5,"color":"#acc9dd"},
+    {"id":"kitsune","theme":"japan","kind":"troop","name":"Fuchsgeist","role":"Flächenschaden","note":"Drei Fuchsfeuer fangen Gruppen an engen Kehren ab.","attack":"sun","cost":65,"unlock":5,"damage":23,"range":5.8,"period":28,"effect":1.75,"color":"#faaf8e"},
+    {"id":"torii","theme":"japan","kind":"building","name":"Nebel-Torii","role":"Kontrolle","note":"Stoppt schnelle Gegner mit einem Nebelstoß.","attack":"frost","cost":130,"unlock":3,"damage":14,"range":5.9,"period":19,"effect":0.54,"color":"#98d4d2"},
+    {"id":"yagura","theme":"japan","kind":"building","name":"Yagura-Wachturm","role":"Fernkampf","note":"Deckt mit schnellen Pfeilen lange Pfade ab.","attack":"arrow","cost":145,"unlock":3,"damage":29,"range":7.8,"period":21,"effect":0,"color":"#d9ab84"},
+    {"id":"bell","theme":"japan","kind":"building","name":"Bronzeglocke","role":"Unterstützung","note":"Ihr Klang beschleunigt befreundete Truppen und Gebäude.","attack":"rally","cost":120,"unlock":5,"damage":15,"range":5.1,"period":22,"effect":4.4,"color":"#c3d6a0"},
+    {"id":"akari","theme":"japan","kind":"hero","name":"Akari","role":"Nebelkreis","note":"Umhüllt einen Wegabschnitt und verlangsamt alle Gegner darin stark.","attack":"frost","skill":"mist","cost":185,"unlock":3,"damage":32,"range":5.8,"period":20,"effect":0.45,"color":"#a1e2c7"},
+    {"id":"raiden","theme":"japan","kind":"hero","name":"Raiden","role":"Donnersprung","note":"Springt zum Ziel und ruft einen Blitz gegen nahe Gegner herab.","attack":"sun","skill":"thunder","cost":205,"unlock":6,"damage":39,"range":5.7,"period":31,"effect":1.9,"color":"#bbbefc"}
+  ],
+  "enemies": [
+    {"id":"reaver","name":"Rissläufer","hp":55,"speed":1.63,"armor":0,"leak":1,"color":"#ad736a"},
+    {"id":"hound","name":"Obsidianklaue","hp":40,"speed":2.8,"armor":0,"leak":1,"color":"#a889a3"},
+    {"id":"brute","name":"Schlackenhüter","hp":145,"speed":1.27,"armor":0.34,"leak":2,"color":"#a48b76"},
+    {"id":"wisp","name":"Aschengeist","hp":76,"speed":2.13,"armor":0.12,"leak":1,"color":"#a995cf"},
+    {"id":"herald","name":"Rissherold","hp":126,"speed":1.64,"armor":0.08,"leak":2,"color":"#d29a88"},
+    {"id":"golem","name":"Schlackenkoloss","hp":610,"speed":1.1,"armor":0.25,"leak":5,"color":"#ed985e"},
+    {"id":"titan","name":"Kronentitan","hp":1180,"speed":1.04,"armor":0.28,"leak":8,"color":"#e1879e"}
+  ],
+  "challenges": [
+    {"id":"campaign","name":"Feldzug","detail":"Zwölf Wellen • drei Kommandanten","unlock":1,"waves":12,"reward":1.0},
+    {"id":"rush","name":"Die Hetzjagd","detail":"Acht Wellen • schnellere Gegner","unlock":1,"waves":8,"reward":1.25},
+    {"id":"scarcity","name":"Letzte Drachmen","detail":"Zehn Wellen • knappes Gold","unlock":2,"waves":10,"reward":1.45},
+    {"id":"siege","name":"Marsch der Kolosse","detail":"Zehn Wellen • mehr Elite und Bosse","unlock":3,"waves":10,"reward":1.55},
+    {"id":"endurance","name":"Die lange Nacht","detail":"Zwanzig Wellen • ansteigende Stärke","unlock":4,"waves":20,"reward":1.75}
+  ]
+}

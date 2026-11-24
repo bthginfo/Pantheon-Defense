@@ -1,0 +1,14 @@
+node_modules/
+target/
+dist/
+.vercel/
+.env
+.env.*
+!.env.example
+.cache/
+public/wasm/
+server/generated/
+test-results/
+playwright-report/
+__pycache__/
+*.blend1

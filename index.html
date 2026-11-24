@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10272a">
+  <meta name="description" content="Pantheon Defense, ein 3D-Tower-Defense für Solo und Koop. Rekrutiere, verschmelze und verteidige die Tore der Antike.">
+  <title>Pantheon Defense</title>
+</head>
+<body>
+  <header class="masthead" id="masthead">
+    <div class="header-inner">
+      <button class="brand" id="home-button" aria-label="Pantheon Defense, zur Bastion">
+        <span class="insignia" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>Pantheon <small>Defense</small></span>
+      </button>
+      <nav class="nav" aria-label="Hauptnavigation">
+        <button data-tab="bastion" aria-current="page">Bastion</button>
+        <button data-tab="collection">Sammlung</button>
+        <button data-tab="chronicle">Chronik</button>
+      </nav>
+      <div class="header-actions">
+        <button class="plain sound-toggle" id="sound-button" aria-pressed="false" title="Ton ein- oder ausschalten"><span aria-hidden="true">♫</span><span>Ton</span></button>
+        <button class="account-button" id="account-button">Anmelden</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="hub" class="shell">
+    <div id="bastion">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-paint" aria-hidden="true"></div>
+        <div class="hero-haze" aria-hidden="true"></div>
+        <img class="hero-character" id="hero-character" src="/assets/portraits/thekla.png" alt="">
+        <div class="hero-copy">
+          <p class="kicker"><span aria-hidden="true">✦</span> Solo und Koop Tower Defense</p>
+          <h1 id="hero-title">Das Tor<br>der Ägäis</h1>
+          <p id="hero-description">Zieh deine Truppen, schmiede stärkere Ränge und halte die anrückenden Wellen auf. Allein oder zu zweit.</p>
+          <div class="hero-actions">
+            <button class="primary" id="hero-play"><span aria-hidden="true">▸</span> Partie vorbereiten</button>
+            <button class="quiet" data-tab="collection">Sammlung ansehen <span aria-hidden="true">↗</span></button>
+          </div>
+        </div>
+        <div class="hero-credit"><span id="hero-character-name">Thekla</span><small id="hero-character-role">Phalanx-Hauptfrau</small></div>
+      </section>
+
+      <section class="preparation" id="preparation" aria-labelledby="preparation-title">
+        <div class="section-heading">
+          <div><p class="kicker">Schauplatz wählen</p><h2 id="preparation-title">Die nächste Partie</h2></div>
+          <div class="segment" aria-label="Spielmodus">
+            <button data-mode="solo" aria-pressed="true">Solo</button>
+            <button data-mode="duo" aria-pressed="false">Zu zweit</button>
+          </div>
+        </div>
+        <div class="setup-grid">
+          <div id="theme-list" class="theme-list" aria-label="Schauplätze"></div>
+          <section class="war-table" aria-labelledby="challenge-label">
+            <label id="challenge-label" for="challenge">Herausforderung</label>
+            <select id="challenge"></select>
+            <p class="hint" id="challenge-detail"></p>
+            <div id="friend-row" hidden>
+              <label for="friend">Rufname deines Mitspielers</label>
+              <input id="friend" name="friend" placeholder="z. B. akari" autocomplete="off" maxlength="20" spellcheck="false">
+              <p class="hint">Der Link ist an dieses Konto gebunden.</p>
+            </div>
+            <button class="primary" id="create-match">Solo-Partie öffnen <span aria-hidden="true">↗</span></button>
+          </section>
+        </div>
+        <section id="recent-block" class="recent" hidden aria-labelledby="recent-title">
+          <h3 id="recent-title">Letzte Spielräume</h3>
+          <div id="recent"></div>
+        </section>
+      </section>
+    </div>
+
+    <section class="subpage" id="collection" hidden aria-labelledby="collection-title">
+      <p class="kicker">Truppen, Bauten und Helden</p>
+      <h1 id="collection-title">Deine Sammlung</h1>
+      <div class="section-heading filter-heading">
+        <p id="collection-level"></p>
+        <div class="segment" id="collection-filters" aria-label="Fraktion"></div>
+      </div>
+      <div class="cards" id="actor-cards"></div>
+    </section>
+
+    <section class="subpage" id="chronicle" hidden aria-labelledby="chronicle-title">
+      <p class="kicker">Profilfortschritt</p>
+      <h1 id="chronicle-title">Deine Chronik</h1>
+      <div id="chronicle-content"></div>
+    </section>
+  </main>
+
+  <main class="match-shell" id="match" hidden>
+    <div class="match-bar">
+      <button class="quiet" id="back-to-hub">‹ Bastion</button>
+      <div class="match-title"><h1 id="match-map"></h1><span id="match-type"></span></div>
+      <div class="connection" id="connection"><i></i><span>Verbindet</span></div>
+    </div>
+    <div class="match-layout">
+      <section class="stage" id="stage" aria-label="Dreidimensionales Spielfeld">
+        <canvas id="arena" aria-label="Pantheon Defense Spielfeld"></canvas>
+        <div id="slot-overlay" class="slot-overlay" aria-label="Bauplätze und Truppen"></div>
+        <div id="render-notice" class="render-notice" hidden>Das Spielfeld wird geladen …</div>
+        <div class="battle-meter" id="battle-meter">
+          <div><span>Torleben</span><strong id="life"></strong><meter id="life-meter" min="0" max="22" value="22"></meter></div>
+          <div><span>Welle</span><strong id="wave"></strong><small id="wave-phase"></small></div>
+          <div class="gold-stat"><span>Gold</span><strong id="gold"></strong><small id="kills"></small></div>
+        </div>
+        <div class="boss-health" id="boss-health" hidden></div>
+        <div class="scene-note" id="scene-note" hidden></div>
+        <div class="stage-legend" id="stage-legend"></div>
+      </section>
+
+      <aside class="orders" id="orders" aria-label="Spielbefehle"></aside>
+    </div>
+  </main>
+
+  <footer id="footer" class="page-footer"><span>Pantheon Defense</span><span id="version"></span></footer>
+
+  <dialog id="account-dialog" class="dialog">
+    <form id="account-form">
+      <button type="button" class="dialog-close" data-close="account-dialog" aria-label="Schließen">×</button>
+      <p class="kicker">Dein Fortschritt</p>
+      <h2 id="account-title">Anmelden</h2>
+      <p class="hint" id="account-note">Mit deinem Rufnamen können Freunde dich einladen.</p>
+      <label id="name-label" hidden>Anzeige­name<input name="name" autocomplete="nickname" maxlength="30"></label>
+      <label>Rufname<input name="handle" autocomplete="username" required minlength="3" maxlength="20" autocapitalize="none" spellcheck="false"></label>
+      <label>Passwort<input name="password" type="password" autocomplete="current-password" required minlength="10" maxlength="128"></label>
+      <p data-error id="account-error" role="alert"></p>
+      <button class="primary" type="submit" id="account-submit">Anmelden</button>
+      <button class="quiet" type="button" id="account-switch">Neues Konto erstellen</button>
+    </form>
+  </dialog>
+
+  <dialog id="invite-dialog" class="dialog">
+    <div class="dialog-body">
+      <button type="button" class="dialog-close" id="dismiss-invite" aria-label="Später">×</button>
+      <p class="kicker">Koop-Partie</p>
+      <h2>Du bist eingeladen</h2>
+      <p id="invite-description">Melde dich mit dem eingeladenen Konto an, um dem Spielraum beizutreten.</p>
+      <p data-error id="invite-error" role="alert"></p>
+      <button class="primary" id="accept-invite">Einladung annehmen</button>
+    </div>
+  </dialog>
+
+  <dialog id="leave-dialog" class="dialog">
+    <form method="dialog">
+      <p class="kicker">Partie</p>
+      <h2>Partie aufgeben?</h2>
+      <p id="leave-note">Der aktuelle Wellenstand fließt in die Chronik ein.</p>
+      <div class="dialog-actions"><button class="quiet" value="cancel">Weiterspielen</button><button class="primary" value="confirm">Aufgeben</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="/web/app.js"></script>
+</body>
+</html>

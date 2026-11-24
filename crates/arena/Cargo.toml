@@ -1,0 +1,20 @@
+[package]
+name = "pantheon-arena"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+pantheon-simulation = { path = "../simulation" }
+bevy = { version = "=0.16.1", default-features = false, features = [
+  "std", "async_executor", "bevy_asset", "animation", "bevy_color",
+  "bevy_core_pipeline", "bevy_gltf", "bevy_pbr", "bevy_render", "bevy_scene",
+  "bevy_window", "bevy_winit", "webgl2", "png"
+] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wasm-bindgen = "=0.2.108"
+js-sys = "=0.3.85"
+web-sys = { version = "=0.3.85", features = ["Window", "Document", "Element", "HtmlCanvasElement", "CustomEvent", "CustomEventInit"] }

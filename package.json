@@ -1,0 +1,27 @@
+{
+  "name": "pantheon-defense",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/dev.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "test:e2e": "playwright test",
+    "art": "blender -b -t 4 --python art/forge.py"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@fontsource-variable/cormorant-garamond": "^5.3.0",
+    "@fontsource-variable/dm-sans": "^5.3.0",
+    "@vercel/blob": "^2.9.0",
+    "pg": "^8.16.3",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "vite": "^7.1.12"
+  }
+}
