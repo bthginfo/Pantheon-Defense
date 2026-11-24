@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
+use std::{collections::BTreeMap, sync::OnceLock};
 
 pub const TICK_MS: u64 = 50;
 pub const DT: f32 = TICK_MS as f32 / 1000.0;
@@ -178,6 +178,8 @@ pub struct Setup {
     pub theme: String,
     pub challenge: String,
     pub levels: Vec<u8>,
+    #[serde(default)]
+    pub masteries: Vec<BTreeMap<String, u8>>,
     pub seed: u32,
 }
 
@@ -204,6 +206,8 @@ pub struct Game {
     pub kills: u32,
     pub leaks: u32,
     pub prepared: Vec<bool>,
+    #[serde(default)]
+    pub boss_cast: Option<BossCast>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -223,6 +227,8 @@ pub struct Player {
     pub recruits: u32,
     pub merges: u32,
     pub casts: u32,
+    #[serde(default)]
+    pub mastery: BTreeMap<String, u8>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,6 +239,8 @@ pub struct Piece {
     pub slot: usize,
     pub tier: u8,
     pub rank: u8,
+    #[serde(default)]
+    pub mastery: u8,
     pub ready: u64,
     pub cast_ready: u64,
     pub moved_until: u64,
@@ -251,6 +259,17 @@ pub struct Enemy {
     pub slow_until: u64,
     pub slow: f32,
     pub haste_until: u64,
+    #[serde(default)]
+    pub challenged: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BossCast {
+    pub source: u32,
+    pub actor: String,
+    pub until: u64,
+    pub pos: Point,
+    pub radius: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,6 +334,8 @@ impl Game {
         let solo = setup.levels.len() == 1;
         let (initial_gold, max_life) = match (setup.challenge.as_str(), solo) {
             ("scarcity", _) => (210, 16),
+            ("duelist", _) => (415, 25),
+            ("levy", _) => (365, 27),
             (_, true) => (345, 25),
             _ => (310, 22),
         };
@@ -332,12 +353,14 @@ impl Game {
             players: setup
                 .levels
                 .into_iter()
-                .map(|level| Player {
+                .enumerate()
+                .map(|(index, level)| Player {
                     level: level.max(1),
                     gold: initial_gold,
                     recruits: 0,
                     merges: 0,
                     casts: 0,
+                    mastery: setup.masteries.get(index).cloned().unwrap_or_default(),
                 })
                 .collect(),
             pieces: Vec::new(),
@@ -350,6 +373,7 @@ impl Game {
             kills: 0,
             leaks: 0,
             prepared: Vec::new(),
+            boss_cast: None,
         })
     }
 
@@ -447,6 +471,12 @@ impl Game {
             slot,
             tier,
             rank: 1,
+            mastery: self.players[player]
+                .mastery
+                .get(actor)
+                .copied()
+                .unwrap_or(0)
+                .min(3),
             ready: self.tick + 3,
             cast_ready: self.tick,
             moved_until: 0,
@@ -493,13 +523,23 @@ impl Game {
                 if pool.is_empty() {
                     return Err("Es sind keine Rekruten freigeschaltet.");
                 }
-                self.spend(player, RECRUIT_COST)?;
+                self.spend(
+                    player,
+                    if self.challenge == "levy" {
+                        50
+                    } else {
+                        RECRUIT_COST
+                    },
+                )?;
                 let choice = self.draw(pool.len());
                 self.add_piece(player, slot, &pool[choice].id, 1);
                 self.players[player].recruits += 1;
             }
             Action::Place { actor: id, slot } => {
                 let definition = actor(&id).ok_or("Diese Figur gibt es nicht.")?;
+                if self.challenge == "levy" && definition.kind == "building" {
+                    return Err("Die Würfelwache lässt sich mit Truppen und Helden spielen.");
+                }
                 if definition.kind == "troop" || definition.theme != self.theme {
                     return Err("Diese Figur kann hier nicht gebaut werden.");
                 }
@@ -651,9 +691,14 @@ impl Game {
             "mist" => (4.65, 58., 0.89, 135),
             _ => (3.4, 174., 0.38, 75),
         };
-        let rank_bonus = 1. + f32::from(hero.rank - 1) * 0.28;
+        let rank_bonus = 1. + f32::from(hero.rank - 1) * 0.28 + f32::from(hero.mastery) * 0.07;
+        let base = if self.challenge == "duelist" {
+            340
+        } else {
+            520
+        };
         self.pieces[index].cast_ready =
-            self.tick + 520 - u64::from(self.pieces[index].rank - 1) * 30;
+            self.tick + base - u64::from(self.pieces[index].rank - 1) * 30;
         let tick = self.tick;
         for enemy in &mut self.enemies {
             if distance(enemy.pos, target) <= radius {
@@ -710,12 +755,14 @@ impl Game {
             self.fire();
             self.resolve_shots();
             self.remove_dead();
+            self.boss_ability();
             if self.life <= 0 {
                 self.phase = Phase::Lost;
                 continue;
             }
             if self.spawned >= self.wave_size() && self.enemies.is_empty() {
                 self.shots.clear();
+                self.boss_cast = None;
                 if self.wave >= self.wave_limit {
                     self.phase = Phase::Won;
                     self.event("victory", "", 0, [0., 7.0], 0.);
@@ -764,13 +811,18 @@ impl Game {
         let boss = last
             && (self.wave == self.wave_limit
                 || self.wave % 4 == 0
-                || (self.challenge == "siege" && self.wave % 2 == 0));
+                || (self.challenge == "siege" && self.wave % 2 == 0)
+                || (self.challenge == "duelist" && self.wave % 3 == 0));
         let kind = if boss {
             if self.wave == self.wave_limit {
                 "titan"
             } else {
                 "golem"
             }
+        } else if (self.wave >= 8 || self.challenge == "eclipse") && self.spawned % 8 == 3 {
+            "warden"
+        } else if (self.wave >= 6 || self.challenge == "eclipse") && self.spawned % 7 == 4 {
+            "moth"
         } else if self.wave >= 5 && self.spawned % 9 == 0 {
             "herald"
         } else if self.wave >= 4 && self.spawned % 5 == 0 {
@@ -803,6 +855,7 @@ impl Game {
             slow_until: 0,
             slow: 0.,
             haste_until: 0,
+            challenged: false,
         });
         if boss {
             self.event("boss", kind, id, self.enemies.last().unwrap().pos, hp);
@@ -827,7 +880,9 @@ impl Game {
                 e.haste_until = tick + 15;
             }
             let haste = if e.haste_until > tick { 1.18 } else { 1. };
-            let rage = if e.kind == "titan" && e.hp < e.max_hp * 0.43 {
+            let rage = if (e.kind == "titan" && e.hp < e.max_hp * 0.43)
+                || (e.kind == "moth" && e.progress > 12.)
+            {
                 1.33
             } else {
                 1.
@@ -887,7 +942,8 @@ impl Game {
                 0
             };
             let tier = [1., 2.65, 6.95][usize::from(piece.tier - 1)];
-            let rank = 1. + f32::from(piece.rank - 1) * 0.42;
+            let rank =
+                (1. + f32::from(piece.rank - 1) * 0.42) * (1. + f32::from(piece.mastery) * 0.07);
             piece.ready = tick
                 + def
                     .period
@@ -932,6 +988,12 @@ impl Game {
             // A short visual tail lets snapshots show even very quick attacks once.
             shot.impact + 15 >= tick
         });
+        let wardens: Vec<_> = self
+            .enemies
+            .iter()
+            .filter(|enemy| enemy.kind == "warden")
+            .map(|enemy| (enemy.id, enemy.pos))
+            .collect();
         for shot in impacts {
             let mut damage_shown = 0.;
             for enemy in &mut self.enemies {
@@ -941,7 +1003,11 @@ impl Game {
                 {
                     continue;
                 }
-                let armor = enemy_kind(&enemy.kind).armor;
+                let guarded = shot.attack != "sun"
+                    && wardens
+                        .iter()
+                        .any(|(id, pos)| *id != enemy.id && distance(*pos, enemy.pos) < 2.55);
+                let armor = enemy_kind(&enemy.kind).armor + if guarded { 0.19 } else { 0. };
                 let pierce = if shot.attack == "pierce" || shot.attack == "sun" {
                     0.14
                 } else {
@@ -963,6 +1029,63 @@ impl Game {
             }
             self.event("impact", &shot.attack, shot.enemy, shot.to, damage_shown);
         }
+    }
+
+    fn boss_ability(&mut self) {
+        if let Some(cast) = &self.boss_cast {
+            if !self.enemies.iter().any(|enemy| enemy.id == cast.source) {
+                self.boss_cast = None;
+            } else if self.tick >= cast.until {
+                let cast = self.boss_cast.take().unwrap();
+                for piece in &mut self.pieces {
+                    if distance(SLOTS[piece.slot], cast.pos) <= cast.radius {
+                        piece.ready = piece.ready.max(self.tick + 26);
+                    }
+                }
+                self.event(
+                    "boss_impact",
+                    &cast.actor,
+                    cast.source,
+                    cast.pos,
+                    cast.radius,
+                );
+            }
+            return;
+        }
+        let Some(boss) = self.enemies.iter_mut().find(|enemy| {
+            !enemy.challenged
+                && matches!(enemy.kind.as_str(), "golem" | "titan")
+                && enemy.progress > 6.
+                && (enemy.progress > 10. || enemy.hp < enemy.max_hp * 0.72)
+        }) else {
+            return;
+        };
+        boss.challenged = true;
+        let pos = self
+            .pieces
+            .iter()
+            .filter_map(|piece| {
+                let p = SLOTS[piece.slot];
+                let reach = distance(p, boss.pos);
+                (reach < 5.3).then_some((p, reach))
+            })
+            .min_by(|(_, a), (_, b)| a.total_cmp(b))
+            .map_or(boss.pos, |(p, _)| p);
+        let cast = BossCast {
+            source: boss.id,
+            actor: boss.kind.clone(),
+            until: self.tick + 32,
+            pos,
+            radius: if boss.kind == "titan" { 3.05 } else { 2.55 },
+        };
+        self.event(
+            "boss_windup",
+            &cast.actor,
+            cast.source,
+            cast.pos,
+            cast.radius,
+        );
+        self.boss_cast = Some(cast);
     }
 
     fn remove_dead(&mut self) {
@@ -1044,6 +1167,7 @@ mod tests {
             theme: "aegean".into(),
             challenge: "campaign".into(),
             levels: vec![3, 3],
+            masteries: Vec::new(),
             seed: 773,
         })
         .unwrap()
@@ -1113,5 +1237,72 @@ mod tests {
             serde_json::to_string(&first).unwrap(),
             serde_json::to_string(&second).unwrap()
         );
+    }
+    #[test]
+    fn new_recruitment_challenge_and_mastery_apply_to_the_match() {
+        let mut game = Game::new(Setup {
+            theme: "aegean".into(),
+            challenge: "levy".into(),
+            levels: vec![1],
+            masteries: vec![BTreeMap::from([
+                ("slinger".into(), 2),
+                ("hoplite".into(), 1),
+            ])],
+            seed: 613,
+        })
+        .unwrap();
+        game.apply(0, Action::Start).unwrap();
+        assert!(
+            game.apply(
+                0,
+                Action::Place {
+                    actor: "ballista".into(),
+                    slot: 0
+                }
+            )
+            .is_err()
+        );
+        game.apply(0, Action::Recruit { slot: Some(0) }).unwrap();
+        assert_eq!(game.players[0].gold, 315);
+        assert!(game.pieces[0].mastery > 0);
+    }
+
+    #[test]
+    fn a_boss_telegraphs_before_disabling_attacks_in_range() {
+        let mut game = game();
+        game.apply(0, Action::Start).unwrap();
+        game.apply(
+            0,
+            Action::Place {
+                actor: "ballista".into(),
+                slot: 2,
+            },
+        )
+        .unwrap();
+        game.apply(0, Action::Ready).unwrap();
+        game.apply(1, Action::Ready).unwrap();
+        let boss_pos = SLOTS[2];
+        game.enemies.push(Enemy {
+            id: 200,
+            kind: "golem".into(),
+            lane: 0,
+            progress: 11.,
+            pos: boss_pos,
+            hp: 530.,
+            max_hp: 550.,
+            slow_until: 0,
+            slow: 0.,
+            haste_until: 0,
+            challenged: false,
+        });
+        game.boss_ability();
+        assert!(game.events.iter().any(|event| event.kind == "boss_windup"));
+        let ready = game.pieces[0].ready;
+        game.boss_ability();
+        assert_eq!(game.pieces[0].ready, ready);
+        game.tick = game.boss_cast.as_ref().unwrap().until;
+        game.boss_ability();
+        assert!(game.pieces[0].ready > game.tick);
+        assert!(game.events.iter().any(|event| event.kind == "boss_impact"));
     }
 }

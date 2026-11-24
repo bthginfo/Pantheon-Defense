@@ -43,6 +43,8 @@ export function publicAccount(account) {
     matches: account.matches ?? [],
     records: account.records?.slice(0, 16) ?? [],
     badges: account.badges ?? [],
+    seals: account.seals ?? 0,
+    masteries: account.masteries ?? {},
   };
 }
 
@@ -130,7 +132,25 @@ export async function credit(handle, result) {
       if (condition && !badges.includes(badge)) badges.push(badge);
     }
     return { ...account, xp: account.xp + result.xp, badges,
+      seals: (account.seals ?? 0) + (result.seals ?? 0),
       records: [result, ...account.records].slice(0, 35),
       credited: [...account.credited, result.id] };
   });
+}
+
+export async function unlockMastery(handle, actor, expected, catalog) {
+  const figure = catalog.find(item => item.id === actor);
+  if (!figure) throw new HttpError(404, 'Diese Figur gibt es nicht.');
+  const saved = await mutate(`account-${handle}`, account => {
+    if (!account) throw new HttpError(401, 'Melde dich an, um fortzufahren.');
+    if (level(account.xp) < figure.unlock) throw new HttpError(403, 'Diese Figur ist noch gesperrt.');
+    const current = account.masteries?.[actor] ?? 0;
+    if (current !== expected) throw new HttpError(409, 'Die Meisterschaft hat sich bereits geändert.');
+    if (current >= 3) throw new HttpError(409, 'Die Meisterschaft ist vollständig ausgebaut.');
+    const cost = current + 1;
+    if ((account.seals ?? 0) < cost) throw new HttpError(409, 'Dafür fehlen dir Siegel.');
+    return { ...account, seals: account.seals - cost,
+      masteries: { ...account.masteries, [actor]: current + 1 } };
+  });
+  return publicAccount(saved);
 }

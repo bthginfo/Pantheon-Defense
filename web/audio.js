@@ -53,7 +53,7 @@ export function battleSound(event) {
     lastImpact = now;
     play(['sun','frost','rally'].includes(event.actor) ? 'magic' : 'impact', 0.22);
   } else {
-    const audio = {place:'place',merge:'merge',upgrade:'merge',cast:'cast',boss:'boss',wave:'wave',victory:'victory',leak:'impact'}[event.kind];
+    const audio = {place:'place',merge:'merge',upgrade:'merge',cast:'cast',boss:'boss',boss_windup:'wave',boss_impact:'boss',wave:'wave',victory:'victory',leak:'impact'}[event.kind];
     if (audio) play(audio, audio === 'boss' ? 0.52 : 0.38);
   }
 }

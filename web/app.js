@@ -1,7 +1,7 @@
 import '@fontsource-variable/cormorant-garamond';
 import '@fontsource-variable/dm-sans';
 import './style.css';
-import { $, esc, portrait, numeral, number, price, pieceLabel, groupNames, themeHeroes, shortNames, colorThemes, actorCard, historyRow } from './presentation.js';
+import { $, esc, portrait, numeral, number, price, pieceLabel, groupNames, themeHeroes, colorThemes, actorCard, historyRow } from './presentation.js';
 import { battleSound, isMuted, score, toggleSound } from './audio.js';
 
 const catalog = await fetch('/assets/catalog.json').then(answer => answer.json());
@@ -75,6 +75,7 @@ function changeAccount(next) {
   button.textContent = user ? `${user.name} · Stufe ${user.level}` : 'Anmelden';
   button.setAttribute('aria-label', user ? `Profil von ${user.name}, Stufe ${user.level}` : 'Anmelden');
   paintLobby();
+  if (room) paintMatch();
 }
 
 async function refreshAccount() {
@@ -143,12 +144,14 @@ function paintPreparation() {
 
 function paintCollection() {
   const level = user?.level ?? 1;
-  $('collection-level').textContent = user ? `Profilstufe ${level} · ${number(user.xp)} EP` : 'Spiele Partien, um neue Figuren freizuschalten.';
+  $('collection-level').textContent = user
+    ? `Profilstufe ${level} · ${number(user.xp)} EP · ${number(user.seals ?? 0)} Siegel`
+    : 'Spiele Partien, um neue Figuren freizuschalten.';
   $('collection-filters').innerHTML = catalog.themes.map(item => `<button data-faction="${item.id}"
     aria-pressed="${item.id === factionFilter}">${esc(item.name)}</button>`).join('');
   const items = catalog.actors.filter(actor => actor.theme === factionFilter);
   $('actor-cards').innerHTML = Object.entries(groupNames).map(([kind,label]) => `<section>
-    <h2>${label}</h2><div class="card-grid">${items.filter(a => a.kind === kind).map(a => actorCard(a,level)).join('')}</div>
+    <h2>${label}</h2><div class="card-grid">${items.filter(a => a.kind === kind).map(a => actorCard(a,level,user?.masteries?.[a.id]??0,user?.seals??0,Boolean(user))).join('')}</div>
     </section>`).join('');
 }
 
@@ -160,7 +163,7 @@ function paintChronicle() {
   const threshold = user.level ** 2 * 140;
   $('chronicle-content').innerHTML = `<section class="profile-panel">
     <div class="profile-mark" aria-hidden="true">${esc(user.name.slice(0,1).toUpperCase())}</div>
-    <div><h2>${esc(user.name)}</h2><p>@${esc(user.handle)} · ${number(user.xp)} EP</p>
+    <div><h2>${esc(user.name)}</h2><p>@${esc(user.handle)} · ${number(user.xp)} EP · ${number(user.seals??0)} Siegel</p>
       <meter min="0" max="${Math.max(user.xp,threshold)}" value="${user.xp}" aria-label="Erfahrungspunkte"></meter></div>
     <strong>Stufe ${user.level}</strong><button class="quiet" id="sign-out">Abmelden</button>
   </section>
@@ -350,6 +353,7 @@ function receive(packet, force = false) {
     if (recentEvents.has(event.id) || event.tick + 24 < game.tick) continue;
     recentEvents.add(event.id);
     if (!force) battleSound(event);
+    if (event.kind === 'boss_windup') sceneNotice('Schockwelle angekündigt. Bewegliche Truppen können ausweichen.', 1900);
     if (event.kind === 'boss') sceneNotice(`${enemies.get(event.actor)?.name ?? 'Boss'} rückt an`, 2800);
   }
   if (recentEvents.size > 3000) recentEvents = new Set(game.events.map(event => event.id));
@@ -408,7 +412,7 @@ function paintMatch() {
     ${guest ? `<span><i></i>${esc(guest.name)}${viewer === 1 ? ' · Du' : ''}</span>` : ''}`;
   const boss = game.enemies.find(enemy => enemy.kind === 'titan' || enemy.kind === 'golem');
   $('boss-health').hidden = !boss;
-  if (boss) $('boss-health').innerHTML = `<strong>${esc(enemies.get(boss.kind)?.name)}</strong>
+  if (boss) $('boss-health').innerHTML = `<strong>${esc(enemies.get(boss.kind)?.name)}${game.boss_cast ? ' · Schockwelle' : ''}</strong>
     <meter min="0" max="${Math.ceil(boss.max_hp)}" value="${Math.max(0,boss.hp)}" aria-label="Boss-Lebenspunkte"></meter>`;
   paintSlots();
   stageCaption();
@@ -444,11 +448,12 @@ function piecePanel(piece, game) {
   const gold = game.players[room.viewer].gold;
   const matches = game.pieces.filter(other => other.owner === room.viewer && other.actor === piece.actor && other.tier === piece.tier).length;
   const cooldown = Math.max(0,Math.ceil((piece.cast_ready - game.tick)/20));
+  const mastery = piece.mastery ?? 0;
   return `<section class="selected-piece" style="--actor-color:${actor.color}">
     <div class="piece-heading">${portrait(actor.id)}<div><small>${esc(actor.role)} · ${actor.kind === 'troop' ? `Rang ${numeral(piece.tier)}` : actor.kind === 'hero' ? 'Held' : 'Gebäude'}</small>
     <h3>${esc(actor.name)}</h3><p>Stufe ${piece.rank} / 4</p></div></div>
     <p class="piece-note">${esc(actor.note)}</p>
-    <p class="piece-numbers">${Math.round(actor.damage * [1,2.65,6.95][piece.tier-1] * (1+0.42*(piece.rank-1)))} Grundschaden · ${(actor.range+0.23*(piece.rank-1)+0.45*(piece.tier-1)).toFixed(1).replace('.',',')} Reichweite</p>
+    <p class="piece-numbers">${Math.round(actor.damage * [1,2.65,6.95][piece.tier-1] * (1+0.42*(piece.rank-1)) * (1+0.07*mastery))} Grundschaden · ${(actor.range+0.23*(piece.rank-1)+0.45*(piece.tier-1)).toFixed(1).replace('.',',')} Reichweite${mastery ? ` · Meisterschaft ${mastery}` : ''}</p>
     <div class="piece-actions">
       ${actor.kind === 'building' ? '' : '<button class="minibutton" data-order="move">Umstellen</button>'}
       <button class="minibutton" data-order="upgrade" ${piece.rank >= 4 || gold < price(piece.rank,piece.tier) ? 'disabled' : ''}>${piece.rank >= 4 ? 'Voll ausgebaut' : `Ausbauen · ${price(piece.rank,piece.tier)}`}</button>
@@ -462,10 +467,12 @@ function rosterPanel(game) {
   const player = game.players[room.viewer];
   const availableLevel = Math.max(player.level, themes.get(game.theme).unlock);
   const canPlaceHero = !game.pieces.some(piece => piece.owner === room.viewer && actors.get(piece.actor)?.kind === 'hero');
-  const filtered = catalog.actors.filter(actor => actor.theme === game.theme && actor.kind === menuPane);
+  const levy = game.challenge === 'levy';
+  const pane = levy ? 'hero' : menuPane;
+  const filtered = catalog.actors.filter(actor => actor.theme === game.theme && actor.kind === pane);
   return `<div class="order-tabs segment" aria-label="Bauaufträge">
-    <button aria-pressed="${menuPane === 'building'}" data-pane="building">Gebäude</button>
-    <button aria-pressed="${menuPane === 'hero'}" data-pane="hero">Helden</button>
+    <button aria-pressed="${pane === 'building'}" data-pane="building" ${levy ? 'disabled' : ''}>Gebäude</button>
+    <button aria-pressed="${pane === 'hero'}" data-pane="hero">Helden</button>
   </div>
   <div class="roster">${filtered.map(actor => {
     const lock = availableLevel < actor.unlock;
@@ -482,7 +489,9 @@ function paintOrders() {
   if (!room) return;
   const {game, viewer, guest, host, joined} = room;
   const player = game.players[viewer];
-  const signature = JSON.stringify([game.phase, game.wave, player.gold, game.prepared, joined, selected, pending, menuPane,
+  const result = user?.records?.find(record => record.id === room.id);
+  const drawCost = game.challenge === 'levy' ? 50 : 65;
+  const signature = JSON.stringify([result?.xp,result?.seals,game.phase, game.wave, player.gold, game.prepared, joined, selected, pending, menuPane,
     room.invite, game.pieces.map(p=>[p.id,p.slot,p.rank,p.tier, Math.max(0,Math.ceil((p.cast_ready-game.tick)/20))]), locked]);
   if (signature === orderSignature) return;
   orderSignature = signature;
@@ -498,21 +507,23 @@ function paintOrders() {
         '<button class="minibutton" data-order="renew">Neuen Einladungslink erzeugen</button>'}` : ''}
       ${viewer === 0 ? `<button class="primary" data-order="start" ${!joined || locked ? 'disabled' : ''}>Partie starten ▸</button>` :
         '<p class="hint">Der Gastgeber startet eure Partie.</p>'}
-      <p class="hint guide-note">Ziehen kostet 65 Gold. Auf dem Feld kannst du drei gleiche Truppen verschmelzen. Gebäude bleiben an ihrem Bauplatz.</p>`;
+      <p class="hint guide-note">Ziehen kostet ${drawCost} Gold. Auf dem Feld kannst du drei gleiche Truppen verschmelzen. Gebäude bleiben an ihrem Bauplatz.</p>`;
   } else if (['won','lost'].includes(game.phase)) {
     orders.innerHTML = `<div class="orders-heading"><p class="kicker">Schlachtbericht</p><h2>${game.phase === 'won' ? 'Das Tor hält' : 'Das Tor ist gefallen'}</h2></div>
       <dl class="end-stats"><div><dt>Wellen</dt><dd>${game.wave} / ${game.wave_limit}</dd></div><div><dt>Besiegte Gegner</dt><dd>${game.kills}</dd></div>
-      <div><dt>Verschmolzen</dt><dd>${player.merges}</dd></div><div><dt>Fähigkeiten</dt><dd>${player.casts}</dd></div></dl>
+      <div><dt>Verschmolzen</dt><dd>${player.merges}</dd></div><div><dt>Fähigkeiten</dt><dd>${player.casts}</dd></div>
+      ${result ? `<div><dt>Belohnung</dt><dd>+${result.xp} EP ${result.seals ? `· +${result.seals} Siegel` : ''}</dd></div>` : ''}</dl>
       <button class="primary" data-order="home">Zur Bastion ›</button><button class="quiet" data-order="history">Chronik öffnen</button>`;
   } else {
     const piece = game.pieces.find(item => item.id === selected);
     orders.innerHTML = `<div class="orders-heading"><p class="kicker">Deine Verteidigung</p><h2>Befehle</h2></div>
-      <button class="primary recruit" data-order="recruit" ${player.gold < 65 || locked ? 'disabled' : ''}>
-        <span aria-hidden="true">✦</span> Truppe ziehen <small>65 Gold</small></button>
+      <button class="primary recruit" data-order="recruit" ${player.gold < drawCost || locked ? 'disabled' : ''}>
+        <span aria-hidden="true">✦</span> Truppe ziehen <small>${drawCost} Gold</small></button>
       ${pending ? '<div class="pending-controls"><button class="quiet" data-order="cancel">Auswahl abbrechen</button>'
         + (pending.type === 'cast' ? '<button class="minibutton" data-order="cast-auto">Auto-Ziel</button>' : '') + '</div>' : ''}
       ${piece ? piecePanel(piece,game) : game.wave === 0
-        ? '<p class="hint order-hint">Decke einen Weg mit einer Balliste ab oder ziehe deine ersten Truppen. Starte die erste Welle, sobald du bereit bist.</p>'
+        ? `<p class="hint order-hint">${game.challenge==='levy' ? 'Ziehe mehrere Truppen. Verschmelze drei gleiche für einen stärkeren Rang.'
+          : 'Decke einen Weg mit einem Gebäude ab oder ziehe die ersten Truppen.'} Starte dann die erste Welle.</p>`
         : '<p class="hint order-hint">Wähle ein Feld, um seine Truppe auszubauen, zu verschmelzen oder umzustellen.</p>'}
       ${rosterPanel(game)}
       <div class="orders-footer">
@@ -596,6 +607,7 @@ $('orders').addEventListener('click', async event => {
     selected = null;
     paintMatch();
     supplyArena();
+    if (pending && matchMedia('(max-width: 810px)').matches) $('stage').scrollIntoView({block:'center'});
     return;
   }
   const kind = button.dataset.order;
@@ -668,6 +680,17 @@ document.addEventListener('click', async event => {
     } else { theme = target.theme; paintPreparation(); }
   }
   if (target.faction) { factionFilter = target.faction; paintCollection(); }
+  if (target.mastery) {
+    button.disabled = true;
+    try {
+      const {user:updated} = await request('mastery',{actor:target.mastery,expected:user?.masteries?.[target.mastery]??0});
+      changeAccount(updated);
+      toast(`${actors.get(target.mastery).name} ist jetzt auf Meisterschaft ${updated.masteries[target.mastery]}.`);
+    } catch (error) {
+      button.disabled = false;
+      toast(error.message,true);
+    }
+  }
   if (target.auth) auth(target.auth);
   if (target.close) $(target.close).close();
   if (target.resume) {

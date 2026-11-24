@@ -41,6 +41,8 @@
     {"id":"brute","name":"Schlackenhüter","hp":145,"speed":1.27,"armor":0.34,"leak":2,"color":"#a48b76"},
     {"id":"wisp","name":"Aschengeist","hp":76,"speed":2.13,"armor":0.12,"leak":1,"color":"#a995cf"},
     {"id":"herald","name":"Rissherold","hp":126,"speed":1.64,"armor":0.08,"leak":2,"color":"#d29a88"},
+    {"id":"warden","name":"Spiegelschild","hp":194,"speed":1.31,"armor":0.29,"leak":2,"color":"#8bd0cd"},
+    {"id":"moth","name":"Nachtflügler","hp":68,"speed":2.64,"armor":0.08,"leak":1,"color":"#bba2ed"},
     {"id":"golem","name":"Schlackenkoloss","hp":610,"speed":1.1,"armor":0.25,"leak":5,"color":"#ed985e"},
     {"id":"titan","name":"Kronentitan","hp":1180,"speed":1.04,"armor":0.28,"leak":8,"color":"#e1879e"}
   ],
@@ -49,6 +51,9 @@
     {"id":"rush","name":"Die Hetzjagd","detail":"Acht Wellen • schnellere Gegner","unlock":1,"waves":8,"reward":1.25},
     {"id":"scarcity","name":"Letzte Drachmen","detail":"Zehn Wellen • knappes Gold","unlock":2,"waves":10,"reward":1.45},
     {"id":"siege","name":"Marsch der Kolosse","detail":"Zehn Wellen • mehr Elite und Bosse","unlock":3,"waves":10,"reward":1.55},
-    {"id":"endurance","name":"Die lange Nacht","detail":"Zwanzig Wellen • ansteigende Stärke","unlock":4,"waves":20,"reward":1.75}
+    {"id":"endurance","name":"Die lange Nacht","detail":"Zwanzig Wellen • ansteigende Stärke","unlock":4,"waves":20,"reward":1.75},
+    {"id":"levy","name":"Die Würfelwache","detail":"Zwölf Wellen • günstigere Rekruten • Truppen und Helden","unlock":5,"waves":12,"reward":1.75},
+    {"id":"duelist","name":"Eid der Champions","detail":"Zehn Wellen • rasche Heldenfähigkeiten • zusätzliche Bosse","unlock":5,"waves":10,"reward":1.85},
+    {"id":"eclipse","name":"Die Sonnenfinsternis","detail":"Vierzehn Wellen • Nachtflügler und Spiegelschilde","unlock":6,"waves":14,"reward":2.0}
   ]
 }

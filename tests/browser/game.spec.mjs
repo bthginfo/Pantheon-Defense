@@ -103,8 +103,8 @@ test('an invitation grants only the chosen account and both browsers see the sam
     await guest.getByRole('button',{name:'Einladung annehmen'}).click();
     await expect(guest.locator('#match')).toBeVisible();
     await expect(host.getByRole('button',{name:/Partie starten/})).toBeEnabled({timeout:20_000});
-    await expect(host.locator('#connection')).toHaveText('Live',{timeout:20_000});
-    await expect(guest.locator('#connection')).toHaveText('Live',{timeout:20_000});
+    await expect(host.locator('#connection')).toHaveText(/^(Live|Synchronisiert)$/,{timeout:35_000});
+    await expect(guest.locator('#connection')).toHaveText(/^(Live|Synchronisiert)$/,{timeout:35_000});
     await host.getByRole('button',{name:/Partie starten/}).click();
     const placed = await matchAction(hostContext,id,{type:'place',actor:'ballista',slot:2});
     expect(placed.status()).toBe(200);

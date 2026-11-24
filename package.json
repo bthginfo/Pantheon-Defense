@@ -1,7 +1,7 @@
 {
   "name": "pantheon-defense",
   "private": true,
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -22,6 +22,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",
+    "https-proxy-agent": "^9.1.0",
     "vite": "^7.1.12"
   }
 }

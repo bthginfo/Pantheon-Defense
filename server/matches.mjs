@@ -64,6 +64,7 @@ export async function createMatch(handle, data) {
   const token = duo ? randomBytes(24).toString('base64url') : undefined;
   const game = JSON.parse(core.create_game(JSON.stringify({
     theme: theme.id, challenge: challenge.id, levels: guest ? [host.level, guest.level] : [host.level],
+    masteries: guest ? [host.masteries, guest.masteries] : [host.masteries],
     seed: randomBytes(4).readUInt32LE(),
   })));
   const room = {
@@ -115,11 +116,12 @@ async function award(room) {
   const won = game.phase === 'won';
   // Leaving the lobby cannot award XP.
   const xp = game.wave ? Math.round((game.wave * 20 + Math.min(game.kills, 300) + (won ? 190 : 0)) * (challenge?.reward ?? 1)) : 0;
+  const seals = won ? (game.challenge === 'campaign' ? 2 : 3) : game.wave >= 5 ? 1 : 0;
   for (const [index, member] of [room.host, room.joined ? room.guest : null].entries()) {
     if (!member) continue;
     const player = game.players[index];
     await credit(member.handle, {
-      id: room.id, theme: game.theme, challenge: game.challenge, wave: game.wave, won, xp,
+      id: room.id, theme: game.theme, challenge: game.challenge, wave: game.wave, won, xp, seals,
       kills: game.kills, merges: player.merges, casts: player.casts, duo: Boolean(room.guest),
       completed: new Date().toISOString(),
     });

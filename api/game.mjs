@@ -1,6 +1,6 @@
 import release from '../package.json' with { type: 'json' };
-import { identity, login, logout, profile, register } from '../server/accounts.mjs';
-import { acceptInvite, act, board, createMatch, matchList, renewInvite } from '../server/matches.mjs';
+import { identity, login, logout, profile, register, unlockMastery } from '../server/accounts.mjs';
+import { acceptInvite, act, board, createMatch, matchList, renewInvite, catalog } from '../server/matches.mjs';
 import { assertOrigin, body, failure, HttpError, respond } from '../server/http.mjs';
 
 export default async function handle(req, res) {
@@ -29,6 +29,7 @@ export default async function handle(req, res) {
     if (operation === 'new') return respond(res, 201, await createMatch(user, data));
     if (operation === 'accept') return respond(res, 200, await acceptInvite(user, data.invite));
     if (operation === 'invite') return respond(res, 200, { invite: await renewInvite(user, data.id) });
+    if (operation === 'mastery') return respond(res,200,{user:await unlockMastery(user,data.actor,data.expected,catalog.actors)});
     if (operation === 'action') return respond(res, 200, await act(user, data.id, data));
     throw new HttpError(404, 'Diese Aktion gibt es nicht.');
   } catch (error) {

@@ -179,10 +179,10 @@ def character(data, faction="aegean", enemy=False):
     cape = empty("Cloth motion", (0,.165,.31), body)
 
     elite = ident in ("brute", "golem", "titan")
-    spectral = ident in ("wisp", "kitsune")
+    spectral = ident in ("wisp", "kitsune", "moth")
     scale = 1.12 if hero else .95
     if enemy:
-        scale = {"hound":.66,"wisp":.78,"brute":1.15,"herald":1.03,"golem":1.48,"titan":1.75}.get(ident,.88)
+        scale = {"hound":.66,"wisp":.78,"moth":.72,"warden":1.15,"brute":1.15,"herald":1.03,"golem":1.48,"titan":1.75}.get(ident,.88)
     root.scale = (scale,)*3
 
     prism("Ribbed jerkin", (0,0,.19), .26 if not elite else .34, .45, m["cloth"], body, 6, .31)
@@ -269,6 +269,20 @@ def character(data, faction="aegean", enemy=False):
             prism("Rift fist", (.015,-.181,-.391), .144 if elite else .1, .22, m["glow"], right, 5, .096)
         if ident == "herald":
             staff(right, m, ident)
+        if ident == "warden":
+            prism("Mirror frame", (.035,-.16,-.26), .335,.105,m["stone"],left,9,
+                  tilt=(math.pi/2,0,0))
+            prism("Blue shield face",(.035,-.23,-.26),.281,.07,m["accent"],left,9,
+                  tilt=(math.pi/2,0,0))
+            stone("Shield prism",(.035,-.276,-.26),(.177,.073,.196),m["glow"],left,1)
+            spear(right,m,1.12,"naginata")
+        if ident == "moth":
+            for side, arm in ((-1,left),(1,right)):
+                sheet("Faceted dusk wing",[(.0,.12,.0),(side*.96,.19,.60),(side*.88,.31,.12),
+                      (side*.63,.28,-.39),(side*.17,.14,-.33)],
+                      [(0,1,2),(0,2,3),(0,3,4)],m["accent"],arm,.047)
+                span("Wing marking",(0,.107,.02),(side*.79,.24,.28),.022,m["glow"],arm,5)
+                span("Curling antenna",(side*.05,.0,.26),(side*.23,-.04,.53),.027,m["shade"],head,6,.008)
     else:
         attack = data["attack"]
         if attack == "guard" or ident in ("peltast","veles"):
@@ -355,7 +369,6 @@ def save_action(items, name, last, sample):
 def animate_character(root, body, head, left, right, legs, cape, data, floating):
     rig = [root, body, head, left, right, *legs, cape]
     mark_rest(rig)
-    I = (0,0,0)
     one = (1,1,1)
     def t(x=0,y=0,z=0,a=0,b=0,c=0,s=one):
         return ((x,y,z),(a,b,c),s)
@@ -387,11 +400,35 @@ def animate_character(root, body, head, left, right, legs, cape, data, floating)
         anticipation = {right.name:t(a=.53,b=-.31,c=-.24),left.name:t(a=-.25),body.name:t(y=.05,c=.21),cape.name:t(a=.1)}
         contact = {right.name:t(a=-1.42,b=.27),left.name:t(a=-.74),body.name:t(y=-.138,a=-.21),cape.name:t(a=.47)}
     save_action(rig, "Attack", 21, {6:anticipation,10:contact,15:{body.name:t(a=-.05),right.name:t(a=-.44)}})
-    save_action(rig, "Cast", 37, {
+    cast = {
         7:{body.name:t(z=.045,c=-.14),right.name:t(a=-1.49,b=.53),left.name:t(a=-1.15,b=-.62),head.name:t(a=.23)},
         15:{body.name:t(z=.15,a=-.15),right.name:t(a=-2.18,b=.41),left.name:t(a=-1.82,b=-.51),cape.name:t(a=.55)},
         23:{body.name:t(y=-.095,a=-.21),right.name:t(a=-.82),left.name:t(a=-.74),cape.name:t(a=.29)},
-    })
+    }
+    skill = data.get("skill")
+    if skill == "phalanx":
+        cast[7].update({left.name:t(a=-.94,b=-.25),body.name:t(z=-.075,y=.06,c=.18)})
+        cast[15].update({left.name:t(a=-1.08,b=-.22),right.name:t(a=-1.40,b=.51),
+                         body.name:t(y=-.105,z=-.07,a=-.22,c=-.12),legs[0].name:t(y=-.12,a=.21)})
+    elif skill == "meteor":
+        cast[15].update({body.name:t(z=.19,a=.21),right.name:t(a=-2.37,b=.16),head.name:t(a=.43),cape.name:t(a=.29)})
+        cast[23].update({right.name:t(a=-1.14,b=.65),body.name:t(y=-.20,z=.04,a=-.26,c=.29)})
+    elif skill == "salvo":
+        cast[15].update({right.name:t(a=-1.68,b=-.26,c=.47),left.name:t(a=-.89,b=.61),
+                         body.name:t(y=-.08,c=.40),head.name:t(c=-.35),cape.name:t(a=.47,c=-.18)})
+    elif skill == "oath":
+        cast[7].update({body.name:t(z=-.09),right.name:t(a=-1.1,b=-.82),left.name:t(a=-.88,b=.67)})
+        cast[15].update({body.name:t(z=.08,a=.135),left.name:t(a=-1.61,b=-.89),right.name:t(a=-1.56,b=.86)})
+    elif skill == "mist":
+        cast[7].update({left.name:t(a=-.63,b=-.59,c=-.64),body.name:t(c=-.41),head.name:t(c=.21)})
+        cast[15].update({left.name:t(a=-1.63,b=-.58,c=.58),right.name:t(a=-.94,b=.75),
+                         body.name:t(y=-.07,z=.08,c=.36),cape.name:t(a=.4,c=-.34)})
+    elif skill == "thunder":
+        cast[7].update({root.name:t(z=.18),body.name:t(c=-.34),right.name:t(a=-1.45,b=-.34)})
+        cast[15].update({root.name:t(z=.36,c=.37),body.name:t(a=-.18),right.name:t(a=-2.31,b=.61),
+                         legs[0].name:t(a=-.64),legs[1].name:t(a=.34),cape.name:t(a=.70)})
+        cast[23].update({root.name:t(y=-.12),body.name:t(z=-.10,a=-.34),right.name:t(a=-1.21,b=.63)})
+    save_action(rig, "Cast", 37, cast)
     save_action(rig, "Hit", 13, {4:{body.name:t(y=.09,a=.23),head.name:t(a=.15),left.name:t(a=.28),
                                   right.name:t(a=.21),cape.name:t(a=-.21)}})
     save_action(rig, "Death", 30, {
@@ -521,6 +558,35 @@ def effect(ident):
     save_action([pulse],"Idle",19,{8:{pulse.name:((0,0,0),(0,0,.72),(1.19,)*3)}})
     return root
 
+def batch_rigid_meshes():
+    """Keep the editable parts in .blend and batch each articulated piece in the web export."""
+    bpy.context.view_layer.update()
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    groups = {}
+    for obj in bpy.context.scene.objects:
+        if obj.type == "MESH" and len(obj.data.materials) == 1 and obj.parent:
+            groups.setdefault((obj.parent, obj.data.materials[0]), []).append(obj)
+    for (parent, mat), objects in groups.items():
+        if len(objects) < 2:
+            continue
+        vertices, faces = [], []
+        for obj in objects:
+            evaluated = obj.evaluated_get(depsgraph)
+            mesh = evaluated.to_mesh()
+            matrix = parent.matrix_world.inverted() @ evaluated.matrix_world
+            offset = len(vertices)
+            vertices.extend(tuple(matrix @ vertex.co) for vertex in mesh.vertices)
+            faces.extend(tuple(offset + index for index in polygon.vertices) for polygon in mesh.polygons)
+            evaluated.to_mesh_clear()
+        mesh = bpy.data.meshes.new(f"{parent.name} • {mat.name}")
+        mesh.from_pydata(vertices, [], faces)
+        mesh.update()
+        obj = bpy.data.objects.new(mesh.name, mesh)
+        bpy.context.collection.objects.link(obj)
+        attach(obj, mesh.name, mat, parent)
+        for old in objects:
+            bpy.data.objects.remove(old, do_unlink=True)
+
 def export(root, ident):
     scene = bpy.context.scene
     scene.render.fps = 24
@@ -528,6 +594,7 @@ def export(root, ident):
     scene.frame_end = 49
     scene.frame_set(1)
     bpy.ops.wm.save_as_mainfile(filepath=str(SOURCES / f"{ident}.blend"), compress=True)
+    batch_rigid_meshes()
     bpy.ops.export_scene.gltf(filepath=str(MODELS / f"{ident}.glb"), export_format="GLB",
         export_yup=True, export_apply=True, export_animations=True, export_animation_mode="NLA_TRACKS",
         export_extras=False, export_cameras=False, export_lights=False)
@@ -536,7 +603,7 @@ def export(root, ident):
 def look_at(obj, target):
     obj.rotation_euler = (Vector(target)-obj.location).to_track_quat("-Z","Y").to_euler()
 
-def portrait(root, ident, large=False):
+def portrait(root, ident, large=False, hero=False):
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_WORKBENCH"
     scene.render.resolution_x = 680 if large else 250
@@ -558,11 +625,18 @@ def portrait(root, ident, large=False):
     bpy.ops.object.camera_add(location=(3.05,-5.60,2.70))
     camera = bpy.context.object
     camera.data.type = "ORTHO"
-    camera.data.ortho_scale = 2.70
+    camera.data.ortho_scale = 2.91 if hero else 2.70
     look_at(camera,(0,0,.87))
     scene.camera = camera
     scene.render.filepath = str(PORTRAITS / f"{ident}.png")
-    scene.frame_set(1)
+    if hero:
+        for obj in [root, *root.children_recursive]:
+            if obj.animation_data:
+                for track in obj.animation_data.nla_tracks:
+                    track.mute = track.name != "Cast"
+        scene.frame_set(11 if ident in ("thekla","akari","marcus") else 13)
+    else:
+        scene.frame_set(1)
     bpy.ops.render.render(write_still=True)
 
 def run():
@@ -574,7 +648,7 @@ def run():
         clean()
         root = building(data) if data["kind"] == "building" else character(data,data["theme"])
         export(root, ident)
-        portrait(root, ident, ident == "thekla")
+        portrait(root, ident, ident == "thekla", data["kind"] == "hero")
     for data in CATALOG["enemies"]:
         if subset and data["id"] not in subset:
             continue

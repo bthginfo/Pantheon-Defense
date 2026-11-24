@@ -72,6 +72,7 @@ pub fn play_arena() {
                 fade_fx,
                 play_clips,
                 focus_radius,
+                mark_boss_zone,
                 project_slots,
             )
                 .chain(),
@@ -116,6 +117,9 @@ struct RangeRing;
 #[derive(Component)]
 struct FocusMarker;
 
+#[derive(Component)]
+struct BossMarker;
+
 #[derive(Resource, Default)]
 struct Arena {
     theme: String,
@@ -130,6 +134,7 @@ struct Arena {
     projection_sent: f64,
     tick: u64,
     tick_arrived: f64,
+    boss_cast: Option<sim::BossCast>,
     ready: bool,
 }
 
@@ -283,6 +288,11 @@ fn setup(
     commands.spawn((
         FocusMarker,
         ring(shared.line.clone(), shared.rays[3].clone()),
+    ));
+
+    commands.spawn((
+        BossMarker,
+        ring(shared.line.clone(), shared.rays[5].clone()),
     ));
 
     for enemy in &sim::catalog().enemies {
@@ -594,6 +604,7 @@ fn pull_game(
             "place" => (3, 0.64, 0.4, 5),
             "leak" => (5, 1.48, 0.61, 10),
             "boss" => (4, 1.48, 0.75, 9),
+            "boss_impact" => (5, effect.power, 0.78, 15),
             _ => continue,
         };
         burst(
@@ -611,6 +622,7 @@ fn pull_game(
         let first = game.events.first().map_or(0, |e| e.id);
         arena.seen.retain(|event| *event >= first);
     }
+    arena.boss_cast = game.boss_cast;
     arena.tick = game.tick;
     arena.tick_arrived = now;
 }
@@ -917,6 +929,25 @@ fn focus_radius(
     } else {
         *ring_vis = Visibility::Hidden;
         *marker_vis = Visibility::Hidden;
+    }
+}
+
+fn mark_boss_zone(
+    arena: Res<Arena>,
+    time: Res<Time>,
+    mut query: Query<(&mut Transform, &mut Visibility), With<BossMarker>>,
+) {
+    let Ok((mut transform, mut visible)) = query.single_mut() else {
+        return;
+    };
+    if let Some(cast) = &arena.boss_cast {
+        let pulse = (time.elapsed_secs() * 12.).sin() * 0.10;
+        transform.translation = p3(cast.pos, 0.55);
+        let radius = cast.radius + pulse;
+        transform.scale = Vec3::new(radius, 0.66 + pulse, radius);
+        *visible = Visibility::Visible;
+    } else {
+        *visible = Visibility::Hidden;
     }
 }
 

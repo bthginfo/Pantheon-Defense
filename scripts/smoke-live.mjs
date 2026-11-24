@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { setGlobalProxyFromEnv } from 'node:http';
 import { WebSocket } from 'ws';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 if (process.env.NODE_USE_ENV_PROXY === '1') setGlobalProxyFromEnv();
 
 const base = new URL(process.argv[2] ?? 'http://127.0.0.1:4173');
+const usePolling = process.argv.includes('--poll');
+const proxy = base.protocol === 'https:' && (process.env.HTTPS_PROXY ?? process.env.https_proxy);
+const socketAgent = proxy ? new HttpsProxyAgent(proxy) : undefined;
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function browserSession() {
@@ -32,10 +36,24 @@ function browserSession() {
     return {status:answer.status, data:await answer.json()};
   }
   function live(id) {
+    if (usePolling) {
+      return {
+        close() {},
+        async until(predicate, time=20_000) {
+          const end=Date.now()+time;
+          while (Date.now()<end) {
+            const data=result(await call('board',undefined,{id}),200);
+            if (predicate(data)) return data;
+            await wait(650);
+          }
+          throw new Error('HTTP synchronization did not publish expected state before timeout.');
+        },
+      };
+    }
     const url = new URL('/api/live',base);
     url.protocol = base.protocol === 'https:' ? 'wss:' : 'ws:';
     url.searchParams.set('id',id);
-    const ws = new WebSocket(url,{headers:{Cookie:cookie, Origin:base.origin},handshakeTimeout:12_000});
+    const ws = new WebSocket(url,{headers:{Cookie:cookie, Origin:base.origin},agent:socketAgent,handshakeTimeout:12_000});
     let current, failure;
     ws.on('message', message => { current = JSON.parse(String(message)); });
     ws.on('error', error => { failure = error; });
@@ -120,7 +138,8 @@ try {
   result(await action(host,id,{type:'forfeit'}),200);
   const record=result(await guest.call('session'),200).user.records.find(item=>item.id===id);
   assert.ok(record && record.xp>0 && record.duo);
-  console.log('Bound invitation, denied third account, live sockets, concurrent orders, reconnect and saved co-op XP verified.');
+  console.log('Bound invitation, denied third account, '+(usePolling?'HTTP synchronization':'live sockets')
+    +', concurrent orders, reconnect and saved co-op XP verified.');
 } finally { a.close(); b.close(); }
 
 const soloRoom=result(await solo.call('new',{theme:'aegean',challenge:'rush',mode:'solo'}),201);
