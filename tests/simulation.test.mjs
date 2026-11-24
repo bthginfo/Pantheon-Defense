@@ -30,6 +30,12 @@ test('exported Blender actors include the clips used by Bevy', () => {
       assert.ok(Number.isInteger(asset.materials[0].pbrMetallicRoughness.metallicRoughnessTexture?.index),
         `${actor.id}: packed cloth and metal finishes`);
     }
+    if (actor.id==='thekla' || actor.id==='marcus') {
+      assert.ok(Number.isInteger(attributes.TANGENT), `${actor.id}: normal-map tangents`);
+      assert.ok(Number.isInteger(attributes.TEXCOORD_1), `${actor.id}: second material UV set`);
+      assert.ok(Number.isInteger(asset.materials[0].normalTexture?.index), `${actor.id}: woven and tooled surfaces`);
+      assert.equal(asset.materials[0].pbrMetallicRoughness.metallicRoughnessTexture.texCoord,1,actor.id);
+    }
   }
 });
 

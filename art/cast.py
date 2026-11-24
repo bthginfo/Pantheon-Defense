@@ -9,11 +9,15 @@ from pathlib import Path
 import bpy
 from mathutils import Euler, Vector
 from mathutils.bvhtree import BVHTree
+from mathutils.noise import noise_vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from forge import CATALOG, MODELS, PORTRAITS, SOURCES, clean, look_at
 from figures import humanoid
 from geometry import color_material, studio
+from commanders import COMMANDERS, commander
+from commander_motion import commander_clips
+from commander_finish import add_detail_uv, apply_detail
 
 TAU = math.tau
 
@@ -30,7 +34,9 @@ def bake_skin(root, data, textured_material=False):
     finishes=[]
     normals=[]
     smoothing=[]
-    weights=defaultdict(list)
+    weights=defaultdict(lambda: defaultdict(list))
+    variations=[]
+    detail_surfaces=[]
     depsgraph=bpy.context.evaluated_depsgraph_get()
     for obj in mesh_parts:
         evaluated=obj.evaluated_get(depsgraph)
@@ -38,15 +44,33 @@ def bake_skin(root, data, textured_material=False):
         points=[tuple(evaluated.matrix_world @ v.co) for v in surface.vertices]
         offset=len(positions)
         positions.extend(points)
-        weights[obj.parent.name].extend(range(offset,offset+len(points)))
+        if obj.vertex_groups:
+            names={group.index:group.name for group in obj.vertex_groups}
+            for vertex in surface.vertices:
+                if vertex.groups:
+                    for group in vertex.groups:
+                        weights[names[group.group]][group.weight].append(offset+vertex.index)
+                else:
+                    weights[obj.parent.name][1.].append(offset+vertex.index)
+        else:
+            weights[obj.parent.name][1.].extend(range(offset,offset+len(points)))
         matrix=evaluated.matrix_world.to_3x3().inverted().transposed()
+        painted=surface.color_attributes.get("Artist pigment")
         for face in surface.polygons:
             faces.append(tuple(offset+index for index in face.vertices))
             finish=surface.materials[face.material_index]
-            pigment.append(tuple(finish.diffuse_color))
+            pigment.append([tuple(painted.data[i].color) for i in face.loop_indices] if painted
+                           else [tuple(finish.diffuse_color)]*len(face.vertices))
+            texture_contrast=float(finish.get("Surface variation",0.))
+            variations.append(texture_contrast)
+            detail_surfaces.append(int(finish.get("Micro relief",0)))
             if textured_material:
                 shader=finish.node_tree.nodes.get("Principled BSDF")
-                finishes.append((shader.inputs["Roughness"].default_value,shader.inputs["Metallic"].default_value))
+                roughness=shader.inputs["Roughness"].default_value
+                if texture_contrast:
+                    grain=noise_vector((evaluated.matrix_world @ face.center)*39.6)[1]
+                    roughness=max(.17,min(.94,roughness+grain*texture_contrast*.38))
+                finishes.append((roughness,shader.inputs["Metallic"].default_value))
             normals.append((matrix @ face.normal).normalized())
             smoothing.append(face.use_smooth)
         evaluated.to_mesh_clear()
@@ -75,7 +99,7 @@ def bake_skin(root, data, textured_material=False):
     probes=[Vector(x).normalized() for x in ((-.42,-.77,.77),(.57,-.24,.61),(.23,.57,.61))]
     light=[0.]*len(mesh.vertices)
     count=[0]*len(mesh.vertices)
-    for face,color,normal,smooth in zip(mesh.polygons,pigment,normals,smoothing):
+    for face,normal,smooth in zip(mesh.polygons,normals,smoothing):
         face.use_smooth=smooth
         site=face.center+normal*.014
         enclosed=sum(bvh.ray_cast(site+ray*.012,ray,.115)[2] is not None for ray in probes if ray.dot(normal)>.13)
@@ -83,19 +107,36 @@ def bake_skin(root, data, textured_material=False):
         for i in face.vertices:
             light[i]+=tint
             count[i]+=1
-    for face,color in zip(mesh.polygons,pigment):
-        for loop,i in zip(face.loop_indices,face.vertices):
+    for face,colors,variation in zip(mesh.polygons,pigment,variations):
+        for loop,i,color in zip(face.loop_indices,face.vertices,colors):
             tint=light[i]/count[i]
+            if variation:
+                sample=mesh.vertices[i].co
+                tint*=1+variation*(.64*noise_vector(sample*19.5)[0]+.36*noise_vector(sample*68.3)[1])
             attribute.data[loop].color=(color[0]*tint,color[1]*tint,color[2]*tint,1.)
     mat=color_material("Painted metal edges, textile and clay")
+    lead_character=data["id"] in COMMANDERS
+    if lead_character:
+        detail_uv=add_detail_uv(mesh,normals,detail_surfaces)
+        apply_detail(mat,detail_uv)
     if textured_material:
-        material_atlas(mesh,mat,finishes)
+        material_atlas(mesh,mat,finishes,16 if lead_character else 8,lead_character)
     mesh.materials.append(mat)
     skin=bpy.data.objects.new(data["id"],mesh)
     bpy.context.collection.objects.link(skin)
     skin.parent=arm
-    for bone,vertex_indices in weights.items():
-        skin.vertex_groups.new(name=bone).add(vertex_indices,1.0,"REPLACE")
+    for bone,groups in weights.items():
+        target=skin.vertex_groups.new(name=bone)
+        for strength,vertex_indices in groups.items():
+            target.add(vertex_indices,strength,"REPLACE")
+    if lead_character:
+        # Blender's glTF exporter needs triangles and quads for the normal-map tangent basis.
+        triangulate=skin.modifiers.new("Triangulate the authored larger polygons","TRIANGULATE")
+        triangulate.min_vertices=5
+        bpy.context.view_layer.objects.active=skin
+        skin.select_set(True)
+        bpy.ops.object.modifier_apply(modifier=triangulate.name)
+        bpy.context.view_layer.objects.active=arm
     modifier=skin.modifiers.new("Pose deformation","ARMATURE")
     modifier.object=arm
     modifier.use_deform_preserve_volume=True
@@ -108,9 +149,8 @@ def bake_skin(root, data, textured_material=False):
     shape_collection.hide_viewport=True
     return arm,skin
 
-def material_atlas(mesh, mat, finishes):
+def material_atlas(mesh, mat, finishes, side=8, explicit_uv=False):
     """One small packed map retains cloth, leather and metal in a single mesh primitive."""
-    side=8
     image=bpy.data.images.new("Packed cloth and metal finishes",width=side,height=side,alpha=False)
     image.colorspace_settings.name="Non-Color"
     pixels=[channel for row in range(side) for column in range(side)
@@ -128,6 +168,10 @@ def material_atlas(mesh, mat, finishes):
     atlas.label="Packed ORM channels"
     atlas.image=image
     atlas.interpolation="Closest"
+    if explicit_uv:
+        finish_uv=nodes.new("ShaderNodeUVMap")
+        finish_uv.uv_map=layer.name
+        links.new(finish_uv.outputs["UV"],atlas.inputs["Vector"])
     colors=nodes.new("ShaderNodeSeparateColor")
     shader=nodes.get("Principled BSDF")
     links.new(atlas.outputs["Color"],colors.inputs["Color"])
@@ -140,11 +184,9 @@ def pose(offset=(0,0,0), rotation=(0,0,0), scale=1):
 def idle_stance(item, weapon):
     turn=random.Random(item["id"]+" posture").uniform(-.12,.12)
     if item["id"]=="thekla":
-        return {"Body":(0,.039,-.095),"Head":(.019,-.040,.074),
-                "LeftArm":(-.145,.063,.11),"RightArm":(-.093,-.032,-.058)}
+        return {"Body":(.007,.004,.038),"Head":(-.008,.011,.367)}
     if item["id"]=="marcus":
-        return {"Body":(.01,-.043,.125),"Head":(-.034,.034,-.157),
-                "LeftArm":(-.162,.034,.139),"RightForearm":(.141,0,0)}
+        return {"Body":(.002,-.005,-.019),"Head":(-.007,-.013,.334)}
     if item["id"]=="akari":
         return {"Body":(.015,-.026,-.117),"Head":(.012,.01,.14),
                 "RightArm":(-.095,-.062,-.086),"LeftArm":(-.116,.104,.072)}
@@ -169,7 +211,7 @@ def animate(arm,shape,weapon,item):
             frames=flutter(name,frames,duration)
         elif shape=="wisp":
             frames=float_wisp(name,frames,duration)
-        else:
+        elif item["id"] not in COMMANDERS:
             for posture in frames.values():
                 for side in ("Left","Right"):
                     arm_pose=posture.get(side+"Arm")
@@ -197,6 +239,10 @@ def animate(arm,shape,weapon,item):
         if hasattr(strip,"action_slot") and len(action.slots):
             strip.action_slot=action.slots[0]
         track.mute=True
+    if item["id"] in COMMANDERS:
+        for name,(duration,frames) in commander_clips(item,pose).items():
+            learn(name,duration,frames)
+        return
     airy=shape=="spirit"
     walk={
         frame:{"Body":pose((0,.014,pow(abs(pulse),1.4)*.041),(.035,.0,.078*pulse)),
@@ -332,11 +378,13 @@ def select_export(arm,skin):
     bpy.context.view_layer.objects.active=arm
 
 
-def furnish(item, enemy=False, review_directory=None):
+def furnish(item, enemy=False, review_directory=None, output=None):
     clean()
     if enemy:
         from beasts import enemy_model
         root,shape,weapon=enemy_model(item)
+    elif item["id"] in COMMANDERS:
+        root,shape,weapon=commander(item)
     else:
         root,shape,weapon=humanoid(item)
     arm,skin=bake_skin(root,item,textured_material=not enemy)
@@ -344,6 +392,9 @@ def furnish(item, enemy=False, review_directory=None):
     significant=item["id"] in ("thekla","marcus","akari")
     height=1.37 if item["id"]=="titan" else 1.14 if item["id"]=="golem" else .97
     scale=3.63 if item["id"]=="titan" else 2.95 if item["id"]=="golem" else 2.58 if significant else 2.27
+    if item["id"] in COMMANDERS:
+        height=1.084 if item["id"]=="thekla" else .986
+        scale=2.42 if item["id"]=="thekla" else 2.27
     scene,camera=studio((3.1,-7.6,2.74),(.02,0,height),580 if significant else 264,
         710 if significant else 334,scale,samples=22 if significant else 10,transparent=True)
     scene.render.fps=30
@@ -351,22 +402,27 @@ def furnish(item, enemy=False, review_directory=None):
     scene.frame_end=61
     scene.frame_set(1)
     select_export(arm,skin)
+    models,sources,portraits=MODELS,SOURCES,PORTRAITS
+    if output:
+        models,sources,portraits=(output/name for name in ('models','blend','portraits'))
+        for path in (models,sources,portraits):
+            path.mkdir(parents=True,exist_ok=True)
     for track in arm.animation_data.nla_tracks:
         track.mute=False
-    bpy.ops.export_scene.gltf(filepath=str(MODELS/f"{item['id']}.glb"),export_format="GLB",
+    bpy.ops.export_scene.gltf(filepath=str(models/f"{item['id']}.glb"),export_format="GLB",
         use_selection=True,export_yup=True,export_apply=False,export_animations=True,
         export_animation_mode="NLA_TRACKS",export_skins=True,export_cameras=False,export_lights=False,
-        export_all_vertex_colors=False)
+        export_all_vertex_colors=False,export_tangents=item["id"] in COMMANDERS)
     for track in arm.animation_data.nla_tracks:
         track.mute=track.name!="Idle"
     scene.frame_set(1)
-    bpy.ops.wm.save_as_mainfile(filepath=str(SOURCES/f"{item['id']}.blend"),compress=True)
+    bpy.ops.wm.save_as_mainfile(filepath=str(sources/f"{item['id']}.blend"),compress=True)
     if not enemy:
         hero=item["kind"]=="hero"
-        scene.frame_set(9 if hero else 20)
+        scene.frame_set(1 if item["id"] in COMMANDERS else 9 if hero else 20)
         scene.render.image_settings.file_format="PNG"
         scene.render.image_settings.color_mode="RGBA"
-        scene.render.filepath=str(PORTRAITS/f"{item['id']}.png")
+        scene.render.filepath=str(portraits/f"{item['id']}.png")
         bpy.ops.render.render(write_still=True)
     if review_directory:
         scene.frame_set(1)
@@ -387,12 +443,13 @@ if __name__=="__main__":
     cli=ArgumentParser(description=__doc__)
     cli.add_argument("actors",nargs="*",metavar="ACTOR")
     cli.add_argument("--review",type=Path,metavar="DIRECTORY")
+    cli.add_argument("--output",type=Path,metavar="DIRECTORY")
     args=cli.parse_args(sys.argv[sys.argv.index("--")+1:] if "--" in sys.argv else [])
     if args.review:
         args.review.mkdir(parents=True,exist_ok=True)
     for item in CATALOG["actors"]:
         if item["kind"]!="building" and (not args.actors or item["id"] in args.actors):
-            furnish(item,review_directory=args.review)
+            furnish(item,review_directory=args.review,output=args.output)
     for item in CATALOG["enemies"]:
         if not args.actors or item["id"] in args.actors:
-            furnish(item,True,args.review)
+            furnish(item,True,args.review,args.output)
