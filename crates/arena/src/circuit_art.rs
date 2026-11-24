@@ -37,7 +37,7 @@ struct TerrainCache {
 }
 
 const TERRAIN_LAYER: usize = 1;
-const CAPTURE_WARMUP_FRAMES: u8 = 8;
+const CAPTURE_WARMUP_FRAMES: u8 = 3;
 
 pub fn install_terrain_cache(app: &mut App) {
     app.add_systems(Startup, prepare_terrain_cache).add_systems(
@@ -197,11 +197,10 @@ fn update_terrain_cache(
     };
     let key = (board, arena.viewer, size);
     if cache.capture != Some(key) {
-        let scale = if size.max_element() <= 850 { 2 } else { 1 };
         if let Some(image) = images.get_mut(&cache.image) {
             image.resize(Extent3d {
-                width: size.x * scale,
-                height: size.y * scale,
+                width: size.x,
+                height: size.y,
                 depth_or_array_layers: 1,
             });
         }
