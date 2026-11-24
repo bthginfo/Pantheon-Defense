@@ -4,9 +4,7 @@ import { createServer as viteServer } from 'vite';
 import game from '../api/game.mjs';
 import { attachRealtime } from '../server/realtime.mjs';
 
-const vite = await viteServer({
-  appType: 'spa', server: { middlewareMode: true, hmr: false },
-});
+let vite;
 const server = createServer((req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname;
   if (path === '/api/game') return game(req, res);
@@ -20,6 +18,9 @@ const server = createServer((req, res) => {
     return;
   }
   vite.middlewares(req, res);
+});
+vite = await viteServer({
+  appType: 'spa', server: { middlewareMode: true, hmr: { server } },
 });
 attachRealtime(server);
 server.listen(Number(process.env.PORT ?? 4173), '0.0.0.0', () => {

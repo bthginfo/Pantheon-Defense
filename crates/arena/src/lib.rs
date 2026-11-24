@@ -3,7 +3,7 @@ use bevy::{
         AnimationPlayer,
         graph::{AnimationGraph, AnimationGraphHandle, AnimationNodeIndex},
     },
-    asset::AssetPlugin,
+    asset::{AssetMetaCheck, AssetPlugin},
     core_pipeline::tonemapping::Tonemapping,
     gltf::{Gltf, GltfAssetLabel},
     pbr::CascadeShadowConfigBuilder,
@@ -39,7 +39,7 @@ pub fn play_arena() {
     app.insert_resource(ClearColor(Color::srgb_u8(25, 70, 77)))
         .insert_resource(AmbientLight {
             color: Color::srgb_u8(222, 232, 236),
-            brightness: 325.,
+            brightness: 210.,
             ..default()
         })
         .insert_resource(bevy::pbr::DirectionalLightShadowMap { size: 1024 })
@@ -58,6 +58,7 @@ pub fn play_arena() {
                 })
                 .set(AssetPlugin {
                     file_path: "assets".into(),
+                    meta_check: AssetMetaCheck::Never,
                     ..default()
                 }),
         )
@@ -250,13 +251,13 @@ fn setup(
             ..OrthographicProjection::default_3d()
         }),
         Transform::from_xyz(3.3, 26.7, 27.5).looking_at(Vec3::new(0.0, -0.12, 0.1), Vec3::Y),
-        Tonemapping::None,
+        Tonemapping::ReinhardLuminance,
         Msaa::Off,
     ));
     commands.spawn((
         DirectionalLight {
             color: Color::srgb_u8(255, 231, 190),
-            illuminance: 10_400.,
+            illuminance: 8_600.,
             shadows_enabled: true,
             shadow_normal_bias: 0.37,
             ..default()

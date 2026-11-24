@@ -9,7 +9,7 @@ export function attachRealtime(server) {
     socket.on('error', () => socket.destroy());
     try {
       const url = new URL(req.url, 'http://localhost');
-      if (url.pathname !== '/api/live') return socket.destroy();
+      if (url.pathname !== '/api/live') return;
       assertOrigin(req);
       const handle = await identity(req);
       const id = url.searchParams.get('id');

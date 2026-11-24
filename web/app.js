@@ -139,7 +139,7 @@ function paintPreparation() {
   $('challenge-detail').textContent = challenges.get(challenge).detail;
   $('friend-row').hidden = mode !== 'duo';
   if (document.activeElement !== $('friend')) $('friend').value = friendDraft;
-  $('create-match').textContent = mode === 'duo' ? 'Koop-Raum öffnen ↗' : 'Solo-Partie öffnen ↗';
+  $('create-match').textContent = mode === 'duo' ? 'Koop-Raum öffnen ›' : 'Solo-Partie öffnen ›';
 }
 
 function paintCollection() {
@@ -500,7 +500,7 @@ function paintOrders() {
     orders.innerHTML = `<div class="orders-heading"><p class="kicker">Schlachtbericht</p><h2>${game.phase === 'won' ? 'Das Tor hält' : 'Das Tor ist gefallen'}</h2></div>
       <dl class="end-stats"><div><dt>Wellen</dt><dd>${game.wave} / ${game.wave_limit}</dd></div><div><dt>Besiegte Gegner</dt><dd>${game.kills}</dd></div>
       <div><dt>Verschmolzen</dt><dd>${player.merges}</dd></div><div><dt>Fähigkeiten</dt><dd>${player.casts}</dd></div></dl>
-      <button class="primary" data-order="home">Zur Bastion ↗</button><button class="quiet" data-order="history">Chronik öffnen</button>`;
+      <button class="primary" data-order="home">Zur Bastion ›</button><button class="quiet" data-order="history">Chronik öffnen</button>`;
   } else {
     const piece = game.pieces.find(item => item.id === selected);
     orders.innerHTML = `<div class="orders-heading"><p class="kicker">Deine Verteidigung</p><h2>Befehle</h2></div>

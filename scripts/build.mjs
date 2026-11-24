@@ -51,7 +51,7 @@ writeFileSync('server/generated/package.json', '{"type":"commonjs"}\n');
 if (!simulationOnly) {
   mkdirSync('public/wasm', { recursive: true });
   run('wasm-bindgen', [join(wasm, 'pantheon_arena.wasm'), '--target', 'web',
-    '--out-dir', 'public/wasm', '--out-name', 'arena', '--no-typescript']);
+    '--out-dir', 'public/wasm', '--out-name', 'arena', '--no-typescript', '--remove-name-section', '--remove-producers-section']);
   if (!existsSync('public/assets/models/thekla.glb')) throw new Error('Run npm run art to export the Blender models.');
   run('node', ['node_modules/vite/bin/vite.js', 'build']);
 }
