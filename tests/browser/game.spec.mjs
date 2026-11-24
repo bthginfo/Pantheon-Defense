@@ -122,9 +122,12 @@ test('an invitation grants only the chosen account and both browsers see the sam
     await guest.locator('[data-resume]').first().click();
     await expect(guest.locator('#stage-legend')).toContainText(target.name);
     await expect(guest.locator('[data-slot="2"]')).toHaveAttribute('aria-label',/Ägäis-Balliste/,{timeout:25_000});
-    const ready = await Promise.all([matchAction(hostContext,id,{type:'ready'}),matchAction(guestContext,id,{type:'ready'})]);
-    for (const answer of ready) expect([200,409]).toContain(answer.status());
-    await expect(guest.locator('#wave')).toHaveText(/^[1-9]\d* \/ 12$/,{timeout:25_000});
+    // Both canvases have shown the same board. Free the host's software renderer
+    // before checking that the guest can restart the first wave after a reload.
+    await host.goto('/');
+    expect((await matchAction(hostContext,id,{type:'ready'})).status()).toBe(200);
+    await guest.getByRole('button',{name:'Bereit für die Welle',exact:true}).click();
+    await expect(guest.locator('#wave')).toHaveText(/^[1-9]\d* \/ 12$/,{timeout:30_000});
     expect((await matchAction(hostContext,id,{type:'forfeit'})).status()).toBe(200);
     await expect(guest.getByRole('heading',{name:'Das Tor ist gefallen'})).toBeVisible({timeout:20_000});
   } finally {
