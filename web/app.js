@@ -35,7 +35,6 @@ let talking = false;
 let menuPane = 'building';
 let orderSignature = '';
 let lastPhase = '';
-let rendered = false;
 const grid = [];
 
 async function request(op, body, params = {}) {
@@ -381,7 +380,10 @@ function stageCaption() {
 }
 
 function displayCountdown(game) {
-  if (game.phase === 'prep') return `Start in ${Math.max(0, Math.ceil((game.phase_until - game.tick) / 20))} s`;
+  if (game.phase === 'prep') {
+    if (!game.phase_until) return 'Verteidigung aufstellen';
+    return `Start in ${Math.max(0, Math.ceil((game.phase_until - game.tick) / 20))} s`;
+  }
   if (game.phase === 'combat') return 'Angriff läuft';
   if (game.phase === 'lobby') return 'Bereit zum Start';
   return game.phase === 'won' ? 'Tor gehalten' : 'Partie beendet';
@@ -446,6 +448,7 @@ function piecePanel(piece, game) {
     <div class="piece-heading">${portrait(actor.id)}<div><small>${esc(actor.role)} · ${actor.kind === 'troop' ? `Rang ${numeral(piece.tier)}` : actor.kind === 'hero' ? 'Held' : 'Gebäude'}</small>
     <h3>${esc(actor.name)}</h3><p>Stufe ${piece.rank} / 4</p></div></div>
     <p class="piece-note">${esc(actor.note)}</p>
+    <p class="piece-numbers">${Math.round(actor.damage * [1,2.65,6.95][piece.tier-1] * (1+0.42*(piece.rank-1)))} Grundschaden · ${(actor.range+0.23*(piece.rank-1)+0.45*(piece.tier-1)).toFixed(1).replace('.',',')} Reichweite</p>
     <div class="piece-actions">
       ${actor.kind === 'building' ? '' : '<button class="minibutton" data-order="move">Umstellen</button>'}
       <button class="minibutton" data-order="upgrade" ${piece.rank >= 4 || gold < price(piece.rank,piece.tier) ? 'disabled' : ''}>${piece.rank >= 4 ? 'Voll ausgebaut' : `Ausbauen · ${price(piece.rank,piece.tier)}`}</button>
@@ -508,7 +511,9 @@ function paintOrders() {
         <span aria-hidden="true">✦</span> Truppe ziehen <small>65 Gold</small></button>
       ${pending ? '<div class="pending-controls"><button class="quiet" data-order="cancel">Auswahl abbrechen</button>'
         + (pending.type === 'cast' ? '<button class="minibutton" data-order="cast-auto">Auto-Ziel</button>' : '') + '</div>' : ''}
-      ${piece ? piecePanel(piece,game) : '<p class="hint order-hint">Wähle ein Feld, um seine Truppe auszubauen, zu verschmelzen oder umzustellen.</p>'}
+      ${piece ? piecePanel(piece,game) : game.wave === 0
+        ? '<p class="hint order-hint">Decke einen Weg mit einer Balliste ab oder ziehe deine ersten Truppen. Starte die erste Welle, sobald du bereit bist.</p>'
+        : '<p class="hint order-hint">Wähle ein Feld, um seine Truppe auszubauen, zu verschmelzen oder umzustellen.</p>'}
       ${rosterPanel(game)}
       <div class="orders-footer">
         ${game.phase === 'prep' ? `<button class="secondary" data-order="ready" ${game.prepared[viewer] || locked ? 'disabled' : ''}>
@@ -572,12 +577,12 @@ window.addEventListener('pantheon-slots', event => {
     const [x,y] = data.slots[index];
     button.style.left = `${x/data.width*100}%`;
     button.style.top = `${y/data.height*100}%`;
-    button.style.setProperty('--tile-size', `${Math.min(52,Math.max(24,data.width/30))}px`);
+    button.style.setProperty('--tile-size', `${Math.min(52,Math.max(17,data.width/30))}px`);
     button.hidden = false;
   }
 });
+window.addEventListener('pantheon-board-models', () => { $('stage').dataset.models = 'ready'; });
 window.addEventListener('pantheon-ready', () => {
-  rendered = true;
   $('stage').dataset.rendered = 'true';
   $('render-notice').hidden = true;
 });

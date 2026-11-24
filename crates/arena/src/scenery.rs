@@ -1,5 +1,5 @@
 use super::{Shared, simple};
-use bevy::{gltf::GltfAssetLabel, prelude::*};
+use bevy::{gltf::GltfAssetLabel, pbr::NotShadowCaster, prelude::*, scene::SceneInstanceReady};
 use pantheon_simulation::{self as sim, SLOTS};
 
 pub struct Palette {
@@ -148,17 +148,17 @@ impl<'a, 'w, 's> Scenery<'a, 'w, 's> {
     }
 
     fn object(&mut self, mesh: Handle<Mesh>, color: usize, pos: Vec3, size: Vec3, angle: f32) {
-        self.all.push(
-            self.commands
-                .spawn((
-                    Mesh3d(mesh),
-                    MeshMaterial3d(self.colors[color].clone()),
-                    Transform::from_translation(pos)
-                        .with_scale(size)
-                        .with_rotation(Quat::from_rotation_y(angle)),
-                ))
-                .id(),
-        );
+        let mut entity = self.commands.spawn((
+            Mesh3d(mesh),
+            MeshMaterial3d(self.colors[color].clone()),
+            Transform::from_translation(pos)
+                .with_scale(size)
+                .with_rotation(Quat::from_rotation_y(angle)),
+        ));
+        if size.y < 0.16 {
+            entity.insert(NotShadowCaster);
+        }
+        self.all.push(entity.id());
     }
 
     fn cube(&mut self, p: [f32; 3], s: [f32; 3], color: usize, angle: f32) {
@@ -306,6 +306,9 @@ impl<'a, 'w, 's> Scenery<'a, 'w, 's> {
                     )),
                     Transform::from_xyz(0., 0.28, 8.52).with_scale(Vec3::splat(1.18)),
                 ))
+                .observe(|_: Trigger<SceneInstanceReady>| {
+                    super::event("pantheon-board-models", "gate")
+                })
                 .id(),
         );
 

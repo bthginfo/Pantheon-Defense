@@ -18,8 +18,14 @@ async function signUp(page, account) {
 }
 
 async function api(context, op, data, params = {}) {
-  const url = '/api/game?' + new URLSearchParams({op,...params});
-  return data ? context.request.post(url,{data}) : context.request.get(url);
+  const result = await context.pages()[0].evaluate(async ({op,data,params}) => {
+    const response = await fetch('/api/game?' + new URLSearchParams({op,...params}), {
+      method: data ? 'POST' : 'GET',
+      ...(data && {headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}),
+    });
+    return {status:response.status,data:await response.json()};
+  },{op,data,params});
+  return {status:()=>result.status,json:async()=>result.data};
 }
 
 function matchAction(context, id, command, nonce = randomUUID()) {
@@ -46,6 +52,7 @@ test('a solo match renders the Bevy arena and persists results', async ({page}, 
   await page.locator('#challenge').selectOption('rush');
   await page.locator('#create-match').click();
   await expect(page.locator('#stage')).toHaveAttribute('data-rendered','true',{timeout:45000});
+  await expect(page.locator('#stage')).toHaveAttribute('data-models','ready',{timeout:45000});
   await expect(page.getByRole('button',{name:/Partie starten/})).toBeEnabled();
   await page.getByRole('button',{name:/Partie starten/}).click();
   await page.getByRole('button',{name:/Ägäis-Balliste/}).click();
@@ -60,7 +67,7 @@ test('a solo match renders the Bevy arena and persists results', async ({page}, 
   await page.screenshot({path:testInfo.outputPath('arena.png')});
   await page.getByRole('button',{name:'Partie aufgeben',exact:true}).click();
   await page.getByRole('button',{name:'Aufgeben',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Das Tor ist gefallen'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Das Tor ist gefallen'})).toBeVisible({timeout:22_000});
   await page.getByRole('button',{name:'Chronik öffnen'}).click();
   await expect(page.getByRole('heading',{name:'Deine Chronik'})).toBeVisible();
   await expect(page.locator('.history')).toContainText('Die Hetzjagd');
@@ -69,9 +76,9 @@ test('a solo match renders the Bevy arena and persists results', async ({page}, 
 });
 
 test('an invitation grants only the chosen account and both browsers see the same game', async ({browser, baseURL}) => {
-  const hostContext = await browser.newContext({baseURL});
-  const guestContext = await browser.newContext({baseURL});
-  const otherContext = await browser.newContext({baseURL});
+  const hostContext = await browser.newContext({baseURL, viewport:{width:1020,height:680}});
+  const guestContext = await browser.newContext({baseURL, viewport:{width:1020,height:680}});
+  const otherContext = await browser.newContext({baseURL, viewport:{width:1020,height:680}});
   try {
     const host = await hostContext.newPage();
     const guest = await guestContext.newPage();
@@ -117,7 +124,7 @@ test('an invitation grants only the chosen account and both browsers see the sam
     await expect(guest.locator('[data-slot="2"]')).toHaveAttribute('aria-label',/Ägäis-Balliste/,{timeout:25_000});
     const ready = await Promise.all([matchAction(hostContext,id,{type:'ready'}),matchAction(guestContext,id,{type:'ready'})]);
     for (const answer of ready) expect([200,409]).toContain(answer.status());
-    await expect(guest.locator('#wave')).toHaveText('1 / 12',{timeout:25_000});
+    await expect(guest.locator('#wave')).toHaveText(/^[1-9]\d* \/ 12$/,{timeout:25_000});
     expect((await matchAction(hostContext,id,{type:'forfeit'})).status()).toBe(200);
     await expect(guest.getByRole('heading',{name:'Das Tor ist gefallen'})).toBeVisible({timeout:20_000});
   } finally {

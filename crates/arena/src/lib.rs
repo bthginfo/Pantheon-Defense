@@ -6,7 +6,7 @@ use bevy::{
     asset::{AssetMetaCheck, AssetPlugin},
     core_pipeline::tonemapping::Tonemapping,
     gltf::{Gltf, GltfAssetLabel},
-    pbr::CascadeShadowConfigBuilder,
+    pbr::{CascadeShadowConfigBuilder, NotShadowCaster},
     prelude::*,
     render::camera::ScalingMode,
     scene::SceneInstanceReady,
@@ -275,6 +275,7 @@ fn setup(
             Mesh3d(mesh),
             MeshMaterial3d(material),
             Transform::default(),
+            NotShadowCaster,
             Visibility::Hidden,
         )
     };
@@ -284,15 +285,11 @@ fn setup(
         ring(shared.line.clone(), shared.rays[3].clone()),
     ));
 
-    for id in sim::catalog()
-        .actors
-        .iter()
-        .map(|a| &a.id)
-        .chain(sim::catalog().enemies.iter().map(|a| &a.id))
-    {
-        arena
-            .assets
-            .insert(id.clone(), asset_server.load(format!("models/{id}.glb")));
+    for enemy in &sim::catalog().enemies {
+        arena.assets.insert(
+            enemy.id.clone(),
+            asset_server.load(format!("models/{}.glb", enemy.id)),
+        );
     }
     for id in ["fx_bolt", "fx_sun", "fx_frost", "fx_spark"] {
         arena
@@ -340,6 +337,16 @@ fn pull_game(
             Palette::for_theme(&game.theme),
         )
         .build(&game.theme, &asset_server);
+        for actor in sim::catalog()
+            .actors
+            .iter()
+            .filter(|actor| actor.theme == game.theme)
+        {
+            arena
+                .assets
+                .entry(actor.id.clone())
+                .or_insert_with(|| asset_server.load(format!("models/{}.glb", actor.id)));
+        }
         arena.theme = game.theme.clone();
         arena.projected = Vec2::ZERO;
     }
@@ -439,6 +446,9 @@ fn pull_game(
     }
 
     for shot in &game.shots {
+        if shot.impact + 13 < game.tick {
+            continue;
+        }
         let start = p3(shot.from, 1.35);
         let target = p3(shot.to, 0.98);
         if let Some(entity) = arena.shots.get(&shot.id) {
@@ -465,7 +475,7 @@ fn pull_game(
             _ => "fx_sun",
         };
         let lifetime = (shot.impact.saturating_sub(shot.started) as f64) * 0.05;
-        let remaining = ((shot.impact.saturating_sub(game.tick) as f64) * 0.05).max(0.12);
+        let remaining = ((shot.impact.saturating_sub(game.tick) as f64) * 0.05).max(0.16);
         let entity = spawn_figure(
             &mut commands,
             &asset_server,
@@ -476,20 +486,25 @@ fn pull_game(
             facing(target - start),
             false,
         );
-        commands
-            .entity(entity)
-            .remove::<Figure>()
-            .insert(Projectile {
+        commands.entity(entity).remove::<Figure>().insert((
+            NotShadowCaster,
+            Projectile {
                 from: start,
                 to: target,
                 began: now - (lifetime - remaining).max(0.) * 0.8,
                 ends: now + remaining,
                 arc: if shot.attack == "guard" { 0.18 } else { 0.76 },
-            });
+            },
+        ));
         // Projectiles already have their Blender mesh as a SceneRoot. Their travel is driven by the hit tick.
         arena.shots.insert(shot.id, entity);
     }
-    let present: HashSet<_> = game.shots.iter().map(|s| s.id).collect();
+    let present: HashSet<_> = game
+        .shots
+        .iter()
+        .filter(|s| s.impact + 13 >= game.tick)
+        .map(|s| s.id)
+        .collect();
     arena.shots.retain(|id, entity| {
         if present.contains(id) {
             return true;

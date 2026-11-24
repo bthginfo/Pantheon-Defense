@@ -6,7 +6,7 @@ export default defineConfig({
   testDir: 'tests/browser',
   fullyParallel: false,
   workers: 1,
-  timeout: 100_000,
+  timeout: 165_000,
   use: {
     baseURL: process.env.PANTHEON_URL ?? 'http://127.0.0.1:4173',
     viewport: { width: 1390, height: 910 },

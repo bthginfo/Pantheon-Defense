@@ -312,15 +312,11 @@ impl Game {
             .iter()
             .find(|c| c.id == setup.challenge)
             .ok_or("Diese Herausforderung gibt es nicht.")?;
-        let initial_gold = if setup.challenge == "scarcity" {
-            210
-        } else {
-            310
-        };
-        let max_life = if setup.challenge == "scarcity" {
-            16
-        } else {
-            22
+        let solo = setup.levels.len() == 1;
+        let (initial_gold, max_life) = match (setup.challenge.as_str(), solo) {
+            ("scarcity", _) => (210, 16),
+            (_, true) => (345, 25),
+            _ => (310, 22),
         };
         Ok(Self {
             theme: theme.id.clone(),
@@ -477,7 +473,7 @@ impl Game {
                 if player != 0 || self.phase != Phase::Lobby {
                     return Err("Die Partie kann nur einmal vom Gastgeber gestartet werden.");
                 }
-                self.prepare(180);
+                self.prepare(0);
             }
             Action::Ready => {
                 if self.phase != Phase::Prep {
@@ -487,7 +483,7 @@ impl Game {
                     self.prepared[player] = true;
                 }
                 if self.prepared.iter().all(|ready| *ready) {
-                    self.phase_until = self.tick;
+                    self.phase_until = self.tick + 1;
                     self.advance(1);
                 }
             }
@@ -693,7 +689,9 @@ impl Game {
 
     pub fn advance(&mut self, ticks: u32) {
         for _ in 0..ticks.min(2400) {
-            if matches!(self.phase, Phase::Lobby | Phase::Won | Phase::Lost) {
+            if matches!(self.phase, Phase::Lobby | Phase::Won | Phase::Lost)
+                || (self.phase == Phase::Prep && self.phase_until == 0)
+            {
                 break;
             }
             self.tick += 1;
@@ -734,7 +732,7 @@ impl Game {
 
     fn prepare(&mut self, wait: u64) {
         self.phase = Phase::Prep;
-        self.phase_until = self.tick + wait;
+        self.phase_until = if wait == 0 { 0 } else { self.tick + wait };
         self.prepared = vec![false; self.players.len()];
     }
 
@@ -757,7 +755,7 @@ impl Game {
     }
 
     fn spawn_wave(&mut self) {
-        let interval = if self.challenge == "rush" { 8 } else { 12 };
+        let interval = if self.challenge == "rush" { 10 } else { 12 };
         if self.spawned >= self.wave_size() || self.wave_tick % interval != 1 {
             return;
         }
@@ -791,7 +789,7 @@ impl Game {
         };
         let def = enemy_kind(kind);
         let growth = 1. + f32::from(self.wave - 1) * 0.095;
-        let team_scale = if self.players.len() == 2 { 1.12 } else { 0.87 };
+        let team_scale = if self.players.len() == 2 { 1.12 } else { 0.79 };
         let hp = def.hp * growth * team_scale * if self.challenge == "siege" { 1.18 } else { 1. };
         let id = self.id();
         self.enemies.push(Enemy {
@@ -815,7 +813,7 @@ impl Game {
         let tick = self.tick;
         let theme = &self.theme;
         let lengths = [path_len(theme, 0), path_len(theme, 1)];
-        let rush = if self.challenge == "rush" { 1.35 } else { 1. };
+        let rush = if self.challenge == "rush" { 1.27 } else { 1. };
         let heralds: Vec<_> = self
             .enemies
             .iter()
@@ -923,14 +921,16 @@ impl Game {
         let tick = self.tick;
         let mut impacts = Vec::new();
         self.shots.retain_mut(|shot| {
-            if let Some(target) = self.enemies.iter().find(|e| e.id == shot.enemy) {
-                shot.to = target.pos;
+            if shot.impact >= tick {
+                if let Some(target) = self.enemies.iter().find(|e| e.id == shot.enemy) {
+                    shot.to = target.pos;
+                }
+                if shot.impact == tick {
+                    impacts.push(shot.clone());
+                }
             }
-            if shot.impact > tick {
-                return true;
-            }
-            impacts.push(shot.clone());
-            false
+            // A short visual tail lets snapshots show even very quick attacks once.
+            shot.impact + 15 >= tick
         });
         for shot in impacts {
             let mut damage_shown = 0.;
@@ -976,7 +976,7 @@ impl Game {
         });
         for (id, kind, pos) in dead {
             self.kills += 1;
-            let shared = if self.players.len() == 2 { 6 } else { 10 };
+            let shared = if self.players.len() == 2 { 6 } else { 12 };
             let reward = if kind == "titan" || kind == "golem" {
                 55
             } else {
@@ -1101,6 +1101,8 @@ mod tests {
         let mut first = game();
         first.apply(0, Action::Start).unwrap();
         first.apply(0, Action::Recruit { slot: Some(2) }).unwrap();
+        first.apply(0, Action::Ready).unwrap();
+        first.apply(1, Action::Ready).unwrap();
         let saved = serde_json::to_string(&first).unwrap();
         let mut second: Game = serde_json::from_str(&saved).unwrap();
         first.advance(650);

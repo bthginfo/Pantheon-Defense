@@ -1,9 +1,11 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
-import { get, put, BlobPreconditionFailedError } from '@vercel/blob';
+import { get, head, put, BlobNotFoundError, BlobPreconditionFailedError } from '@vercel/blob';
 import pg from 'pg';
 
-export class Conflict extends Error {}
+export class Conflict extends Error {
+  status = 409;
+}
 let connection;
 
 async function connect() {
@@ -30,12 +32,25 @@ async function connect() {
     return {
       async read(key) {
         try {
-          const response = await get(path(key), { access: 'private', useCache: false });
-          if (!response || response.statusCode !== 200) return undefined;
-          const value = await new Response(response.stream).json();
-          return { version: response.blob.etag, value };
+          for (let attempt = 0; attempt < 4; attempt++) {
+            const metadata = await head(path(key));
+            if (!metadata.etag) throw new Error('The storage response did not return a document version.');
+            // A versioned read keeps the document body and the conditional-write tag consistent.
+            const url = new URL(metadata.url);
+            url.searchParams.set('revision', metadata.etag);
+            const response = await get(url.href, { access: 'private', useCache: false,
+              headers: { 'Cache-Control': 'no-cache', 'Accept-Encoding': 'identity' } });
+            if (!response || response.statusCode !== 200) continue;
+            if (response.blob.etag === metadata.etag) {
+              const value = await new Response(response.stream).json();
+              return { version: metadata.etag, value };
+            }
+            await response.stream.cancel();
+            await new Promise(resolve => setTimeout(resolve, 25 * (attempt + 1)));
+          }
+          throw new Conflict('Der Spielstand wird noch synchronisiert. Versuch es gleich nochmal.');
         } catch (error) {
-          if (error?.name === 'BlobNotFoundError') return undefined;
+          if (error instanceof BlobNotFoundError || error?.name === 'BlobNotFoundError') return undefined;
           throw error;
         }
       },

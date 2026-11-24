@@ -487,3 +487,5 @@ meter::-moz-meter-bar { background:linear-gradient(90deg,#aa7e46,#eec780); }
 @media (prefers-reduced-motion:reduce) {
   *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; }
 }
+
+.piece-numbers { color:#e9ca91; font-size:.69rem; line-height:1.4; }

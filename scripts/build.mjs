@@ -39,7 +39,7 @@ if (bindgen.stdout?.trim() !== 'wasm-bindgen 0.2.108') {
 }
 
 const simulationOnly = process.argv.includes('--simulation');
-const target = process.env.VERCEL ? 'node_modules/.cache/pantheon-rust' : 'target';
+const target = process.env.CARGO_TARGET_DIR ?? (process.env.VERCEL ? 'node_modules/.cache/pantheon-rust' : 'target');
 process.env.CARGO_TARGET_DIR = target;
 run('cargo', ['build', '--locked', '--release', '--target', 'wasm32-unknown-unknown', '-p', 'pantheon-simulation',
   ...(!simulationOnly ? ['-p', 'pantheon-arena'] : [])]);
