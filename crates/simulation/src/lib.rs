@@ -1556,12 +1556,27 @@ mod wasm {
         serde_json::to_string(value).map_err(|e| JsError::new(&e.to_string()))
     }
 
+    #[derive(Serialize)]
+    struct GameSnapshot<'a> {
+        #[serde(flatten)]
+        game: &'a Game,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        rituals: Vec<circuit::RitualReport<'static>>,
+    }
+
+    fn encode_game(game: &Game) -> Result<String, JsError> {
+        encode(&GameSnapshot {
+            game,
+            rituals: game.ritual_reports(),
+        })
+    }
+
     #[wasm_bindgen]
     pub fn create_game(setup: &str) -> Result<String, JsError> {
         let setup = serde_json::from_str(setup).map_err(|e| JsError::new(&e.to_string()))?;
         Game::new(setup)
             .map_err(JsError::new)
-            .and_then(|game| encode(&game))
+            .and_then(|game| encode_game(&game))
     }
 
     #[wasm_bindgen]
@@ -1569,7 +1584,7 @@ mod wasm {
         let mut game: Game =
             serde_json::from_str(game).map_err(|e| JsError::new(&e.to_string()))?;
         game.advance(ticks);
-        encode(&game)
+        encode_game(&game)
     }
 
     #[wasm_bindgen]
@@ -1579,7 +1594,7 @@ mod wasm {
         let action: Action =
             serde_json::from_str(action).map_err(|e| JsError::new(&e.to_string()))?;
         game.apply(player, action).map_err(JsError::new)?;
-        encode(&game)
+        encode_game(&game)
     }
 
     #[wasm_bindgen]

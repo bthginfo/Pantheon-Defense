@@ -2,9 +2,10 @@ import '@fontsource-variable/cormorant-garamond';
 import '@fontsource-variable/dm-sans';
 import './style.css';
 import './circuit.css';
+import './commands.css';
 import { $, esc, portrait, numeral, number, price, pieceLabel, groupNames, themeHeroes, colorThemes, actorCard, historyRow, signCard, spoilsText, rarities } from './presentation.js';
-import { battleSound, isMuted, score, toggleSound } from './audio.js';
-import { updateCircuitOrders, drawPrice, isCircuit, ownerOf, pressureLimit } from './circuit-ui.js';
+import { battleSound, score, soundState, toggleSound, unlockSound } from './audio.js';
+import { updateCircuitOrders, isCircuit, ownerOf, preferredHero, pressureLimit } from './circuit-ui.js';
 import { bindScreen, enterFullscreen, handheld, leaveFullscreen } from './screen.js';
 import { difficultyProgress, materials } from '../shared/progression.js';
 
@@ -42,7 +43,8 @@ let locked = false;
 let toastTimer;
 let invitation = new URLSearchParams(location.hash.slice(1)).get('einladung');
 let talking = false;
-let menuPane = 'recruit';
+let menuPane = null;
+let focusHero = null;
 let orderSignature = '';
 let slotSignature = '';
 let legendSignature = '';
@@ -84,8 +86,15 @@ function versionLabel() {
 }
 
 function soundLabel() {
-  $('sound-button').setAttribute('aria-pressed', String(!isMuted()));
-  $('sound-button').classList.toggle('muted', isMuted());
+  const state = soundState();
+  const label = state === 'off' ? 'Ton einschalten' : ['tap','retry'].includes(state) ? 'Ton starten' : 'Ton ausschalten';
+  for (const button of [$('sound-button'), $('match-sound')]) {
+    button.dataset.sound = state;
+    button.setAttribute('aria-pressed', String(['on','loading','playing'].includes(state)));
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.classList.toggle('muted', state === 'off');
+  }
 }
 
 function changeAccount(next) {
@@ -366,7 +375,8 @@ function openMatch(packet) {
   room = null;
   selected = null;
   pending = null;
-  menuPane = isCircuit(packet.game) ? 'recruit' : 'building';
+  menuPane = isCircuit(packet.game) ? null : 'building';
+  focusHero = null;
   lastPhase = '';
   recentEvents = new Set();
   orderSignature = '';
@@ -391,7 +401,7 @@ function openMatch(packet) {
   document.body.classList.toggle('circuit-game',isCircuit(packet.game));
   window.scrollTo({top:0,behavior:'instant'});
   receive(packet, true);
-  score(packet.game.theme);
+  score(['won','lost'].includes(packet.game.phase) ? '' : packet.game.theme);
   void startArena();
   connectRoom(packet.id);
 }
@@ -427,6 +437,7 @@ function receive(packet, force = false) {
   }
   if (lastPhase !== game.phase && ['won','lost'].includes(game.phase)) {
     pending = null;
+    menuPane = null;
     clearDrag();
     void refreshAccount();
     score('');
@@ -456,14 +467,12 @@ function sceneNotice(text, duration = 0) {
 }
 
 function stageCaption() {
-  if (!pending) {
+  if (!pending || isCircuit(room?.game)) {
     if ($('scene-note').dataset.selection === 'true') sceneNotice('');
     $('scene-note').dataset.selection = 'false';
     return;
   }
-  const recruit = pending.type==='deploy' && room?.game.players[room.viewer].reserve?.find(r=>r.id===pending.id);
-  const hint = recruit ? `${actors.get(recruit.actor).name} · Feld wählen`
-    : pending.type === 'move' ? 'Tippe auf ein Zielfeld'
+  const hint = pending.type === 'move' ? 'Tippe auf ein Zielfeld'
     : pending.type === 'cast' ? 'Wähle ein Zielfeld oder lass den Helden automatisch zielen.'
     : `${actors.get(pending.actor)?.name} · freien Bauplatz wählen`;
   $('scene-note').dataset.selection = 'true';
@@ -638,12 +647,13 @@ function paintOrders() {
   const circuit=isCircuit(game);
   const boardReady=$('stage').dataset.rendered==='true' && (!circuit || loadedBoard===boardAsset(game));
   const signature = JSON.stringify([boardReady,result?.xp,result?.seals,loot,game.phase,game.wave,player.gold,player.essence,
-    player.temper,player.favor,player.recruits,player.reserve,game.prepared,joined,selected,pending,menuPane,room.invite,
-    game.pieces.map(p=>[p.id,p.slot,p.rank,p.tier,p.stack,Math.max(0,Math.ceil((p.cast_ready-game.tick)/20))]),locked,isMuted()]);
+    player.temper,player.favor,player.recruits,player.reserve,game.prepared,joined,selected,pending,menuPane,focusHero,room.invite,game.rituals?.[viewer],
+    game.pieces.map(p=>[p.id,p.slot,p.rank,p.tier,p.stack,Math.max(0,Math.ceil((p.cast_ready-game.tick)/20))]),locked]);
   if(signature===orderSignature)return;
   orderSignature=signature;
   const orders=$('orders');
-  const focused=orders.contains(document.activeElement)?document.activeElement.dataset:null;
+  const focused=orders.contains(document.activeElement)?document.activeElement:null;
+  $('match-options').hidden = !['prep','combat'].includes(game.phase);
   orders.classList.toggle('circuit-orders',circuit);
   orders.classList.toggle('live-deck',circuit && !['lobby','won','lost'].includes(game.phase));
   if (game.phase === 'lobby') {
@@ -668,8 +678,8 @@ function paintOrders() {
       ${result ? `<div><dt>Belohnung für Welle ${result.wave}</dt><dd>+${result.xp} EP ${result.seals ? `· +${result.seals} Siegel` : ''}</dd></div>` : ''}</dl>
       <button class="primary" data-order="home">Zur Bastion ›</button><button class="quiet" data-order="history">Chronik öffnen</button>`;
   } else if(circuit) {
-    updateCircuitOrders(orders,{room,selected,pending,menuPane,actors,catalog,
-      level:Math.max(player.level,themes.get(game.theme).unlock),locked,muted:isMuted()});
+    updateCircuitOrders(orders,{room,selected,pending,menuPane,focusHero,actors,catalog,
+      level:Math.max(player.level,themes.get(game.theme).unlock),locked});
   } else {
     const piece = game.pieces.find(item => item.id === selected);
     orders.innerHTML = `<div class="orders-heading"><p class="kicker">Deine Verteidigung</p><h2>Befehle</h2></div>
@@ -687,9 +697,12 @@ function paintOrders() {
           ${game.prepared[viewer] ? 'Warten auf Mitspieler' : 'Bereit für die Welle'}</button>` : ''}
         <button class="quiet surrender" data-order="forfeit">Partie aufgeben</button></div>`;
   }
-  if (focused) {
-    const type = Object.keys(focused).find(key => ['order','place','pane','recruitId','oracle','ritual','temper'].includes(key));
-    if (type) [...orders.querySelectorAll('button')].find(button => button.dataset[type] === focused[type] && !button.disabled)?.focus({preventScroll:true});
+  const sheet = orders.querySelector('.command-sheet');
+  $('slot-overlay').inert = Boolean(handheld() && sheet && !sheet.hidden);
+  if (focused && !focused.isConnected) {
+    const type = Object.keys(focused.dataset).find(key => ['order','place','pane','recruitId','releaseId','oracle','ritual','temper','heroSelect'].includes(key));
+    if (type) [...orders.querySelectorAll('button')].find(button => button.dataset[type] === focused.dataset[type]
+      && !button.disabled && !button.closest('[hidden]'))?.focus({preventScroll:true});
   }
 }
 
@@ -706,7 +719,7 @@ function revealRecruit(unit, detail) {
 function chooseReserve(recruit) {
   selected=null;
   pending={type:'deploy',id:recruit.id};
-  menuPane='recruit';
+  menuPane=null;
   revealRecruit(recruit,'Feld wählen');
 }
 
@@ -730,7 +743,6 @@ async function command(order, hint) {
         const piece=result.game.pieces.find(piece=>piece.id===added?.source);
         if(piece) {
           selected=piece.id;
-          menuPane='piece';
           revealRecruit(piece,added.kind==='stack'?`${piece.stack}/3 im Trupp`:'Neues Feld');
         }
       }
@@ -756,7 +768,7 @@ async function tapSlot(slot) {
       const piece=result.game.pieces.find(item=>item.slot===slot&&item.owner===result.viewer);
       if(piece&&action.type!=='cast'){
         selected=piece.id;
-        if(isCircuit(result.game))menuPane='piece';
+        if(isCircuit(result.game))menuPane=null;
       }
       if(action.type==='deploy'){
         const next=result.game.players[result.viewer].reserve[0];
@@ -769,7 +781,7 @@ async function tapSlot(slot) {
   }
   const piece=room.game.pieces.find(item=>item.slot===slot&&item.owner===room.viewer);
   selected=piece?.id??null;
-  if(isCircuit(room.game)) menuPane=piece?'piece':'recruit';
+  if(isCircuit(room.game)) menuPane=piece?'piece':null;
   paintMatch();
   supplyArena();
 }
@@ -798,7 +810,7 @@ async function movePiece(id,slot) {
     await command({type:'move',id,slot},result=>{
       pending=null;
       selected=result.game.pieces.find(item=>item.slot===slot && item.owner===result.viewer)?.id??null;
-      menuPane=selected?'piece':'recruit';
+      menuPane=null;
     });
   } finally {
     movePreview=null;
@@ -941,39 +953,71 @@ function markRendered() {
   paintOrders();
 }
 
+function closeBattleSheet() {
+  const trigger = $('orders').querySelector(`[data-pane="${menuPane}"]`);
+  menuPane = null;
+  paintOrders();
+  trigger?.focus({ preventScroll:true });
+}
+
+function confirmForfeit() {
+  if (!room || !['prep','combat'].includes(room.game.phase)) return;
+  $('leave-note').textContent = room.guest ? 'Die Partie endet für euch beide. Ihr erhaltet EP für die erreichte Welle.'
+    : 'Du erhältst EP für die erreichte Welle.';
+  $('leave-dialog').returnValue = 'cancel';
+  $('leave-dialog').showModal();
+}
+
 $('orders').addEventListener('click', async event => {
   const button = event.target.closest('button');
   if (!button || !room || button.disabled) return;
-  if (button.dataset.pane) {menuPane=button.dataset.pane;paintOrders();return;}
+  if (button.dataset.pane) {
+    const pane = button.dataset.pane;
+    if (isCircuit(room.game) && menuPane===pane) { closeBattleSheet(); return; }
+    menuPane = pane;
+    if (pane==='hero') focusHero = preferredHero(room);
+    paintOrders();
+    if (event.detail===0) $('command-title')?.focus({ preventScroll:true });
+    return;
+  }
+  if (button.dataset.heroSelect) {
+    focusHero = button.dataset.heroSelect;
+    paintOrders();
+    return;
+  }
   if (button.dataset.recruitId) {
     const recruit=room.game.players[room.viewer].reserve?.find(item=>item.id===Number(button.dataset.recruitId));
     if(recruit){chooseReserve(recruit);paintMatch();supplyArena();}
     return;
   }
+  if (button.dataset.releaseId) {
+    await command({type:'stow',id:Number(button.dataset.releaseId)});
+    return;
+  }
   if(button.dataset.oracle){await command({type:'oracle',tier:Number(button.dataset.oracle)});return;}
   if(button.dataset.temper){await command({type:'temper',tier:Number(button.dataset.temper)});return;}
   if(button.dataset.ritual){
-    await command({type:'ritual',actor:button.dataset.ritual},result=>{
-      selected=result.game.pieces.filter(p=>p.actor===button.dataset.ritual&&p.owner===room.viewer).at(-1)?.id??null;
-      if(selected)menuPane='piece';
+    const actor = button.dataset.ritual;
+    await command({type:'ritual',actor},result=>{
+      selected=result.game.pieces.filter(p=>p.actor===actor&&p.owner===result.viewer).at(-1)?.id??null;
+      pending = null;
+      menuPane = null;
+      toast(`${actors.get(actor).name} beschworen.`);
     });
     return;
   }
   if (button.dataset.place) {
     pending = pending?.actor === button.dataset.place ? null : {type:'place',actor:button.dataset.place};
     selected = null;
+    if (isCircuit(room.game)) menuPane = null;
     paintMatch();
     supplyArena();
     if (pending && handheld() && !isCircuit(room.game)) $('stage').scrollIntoView({block:'center'});
     return;
   }
   const kind = button.dataset.order;
-  if (kind==='sound') {toggleSound();soundLabel();paintOrders();return;}
+  if (kind==='close-sheet') { closeBattleSheet(); return; }
   if(kind==='recruit-many'){await command({type:'recruit_many',count:3});return;}
-  if(kind==='release'){
-    if(pending?.type==='deploy')await command({type:'stow',id:pending.id},()=>{pending=null;});
-    return;
-  }
   if(kind==='fortune'){await command({type:'fortune'});return;}
   if (kind === 'copy') {
     try { await navigator.clipboard.writeText(inviteUrl(room.invite)); toast('Einladungslink kopiert.'); }
@@ -987,15 +1031,15 @@ $('orders').addEventListener('click', async event => {
     pending = null; paintMatch();
   } else if (kind === 'move' || kind === 'cast') {
     if (!selected) return;
-    pending = {type:kind,id:selected}; paintMatch();
+    pending = {type:kind,id:selected};
+    if (isCircuit(room.game)) menuPane = null;
+    paintMatch();
   } else if (kind === 'cast-auto') {
     const choice = pending;
     pending = null;
     if (choice?.type === 'cast') await command({...choice, slot:null});
   } else if (kind === 'forfeit') {
-    $('leave-note').textContent = room.guest ? 'Die Partie endet für euch beide. Ihr erhaltet EP für die erreichte Welle.'
-      : 'Du erhältst EP für die erreichte Welle.';
-    $('leave-dialog').showModal();
+    confirmForfeit();
   } else if (kind === 'merge') {
     const before = room.game.pieces.find(p => p.id === selected);
     if (before) await command({type:kind,id:before.id}, result => {
@@ -1004,7 +1048,7 @@ $('orders').addEventListener('click', async event => {
       paintMatch();
     });
   } else if (['start','ready','recruit','upgrade','sell'].includes(kind)) {
-    if(kind==='start')enterFullscreen();
+    if(kind==='start') { unlockSound(); enterFullscreen(); }
     await command({type:kind, ...(selected && {id:selected})});
   }
 });
@@ -1015,7 +1059,14 @@ $('leave-dialog').addEventListener('close', () => {
 $('account-button').addEventListener('click', () => { if (user) chooseTab('chronicle'); else auth(); });
 $('home-button').addEventListener('click', () => chooseTab('bastion'));
 $('back-to-hub').addEventListener('click', () => chooseTab('bastion'));
-$('sound-button').addEventListener('click', () => { toggleSound(); soundLabel(); });
+$('match-options').addEventListener('click', () => $('match-menu').showModal());
+$('open-forfeit').addEventListener('click', () => { $('match-menu').close(); confirmForfeit(); });
+$('sound-button').addEventListener('click', toggleSound);
+$('match-sound').addEventListener('click', toggleSound);
+window.addEventListener('pantheon-sound', soundLabel);
+document.addEventListener('click', event => {
+  if (room && soundState()==='tap' && !event.target.closest('#match-sound')) unlockSound();
+}, {capture:true});
 
 $('hero-play').addEventListener('click', () => $('preparation').scrollIntoView({behavior:'smooth',block:'start'}));
 $('friend').addEventListener('input', event => { friendDraft = event.target.value; });
@@ -1025,6 +1076,7 @@ $('challenge').addEventListener('change', event => {
 });
 $('create-match').addEventListener('click', async () => {
   if (!user) { auth('register'); return; }
+  unlockSound();
   enterFullscreen();
   const button = $('create-match');
   if (button.disabled) return;
@@ -1075,6 +1127,7 @@ document.addEventListener('click', async event => {
   if (target.auth) auth(target.auth);
   if (target.close) $(target.close).close();
   if (target.resume) {
+    unlockSound();
     enterFullscreen();
     try { openMatch(await request('board',undefined,{id:target.resume})); }
     catch(error) { toast(error.message,true); }
@@ -1105,6 +1158,7 @@ $('account-form').addEventListener('submit', async event => {
 $('dismiss-invite').addEventListener('click', () => $('invite-dialog').close());
 $('accept-invite').addEventListener('click', async () => {
   if (!user) { $('invite-dialog').close(); auth(); return; }
+  unlockSound();
   enterFullscreen();
   const button = $('accept-invite');
   button.disabled = true;
@@ -1123,11 +1177,19 @@ window.addEventListener('hashchange', () => {
 });
 window.addEventListener('keydown', event => {
   if (!room || event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.target.matches('input,select,textarea')) return;
+  if (event.key === 'Escape' && !event.target.closest('dialog') && isCircuit(room.game) && menuPane) {
+    event.preventDefault(); closeBattleSheet(); return;
+  }
   if (event.key === 'Escape' && pending) { pending = null; paintMatch(); return; }
   const hotkeys = {r:'recruit', m:'move', u:'upgrade', f:'cast', ' ':'ready'};
   const kind = hotkeys[event.key.toLowerCase()];
   if (kind && event.target.tagName !== 'BUTTON') {
-    const button = $('orders').querySelector(`[data-order="${kind}"]:not(:disabled)`);
+    if (selected && isCircuit(room.game) && ['move','upgrade','cast'].includes(kind) && menuPane!=='piece') {
+      menuPane = 'piece';
+      paintOrders();
+    }
+    const button = [...$('orders').querySelectorAll(`[data-order="${kind}"]:not(:disabled)`)]
+      .find(candidate => !candidate.closest('[hidden]'));
     if (button) { event.preventDefault(); button.click(); }
   }
 });

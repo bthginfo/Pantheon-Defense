@@ -41,9 +41,11 @@ function advance(room, now) {
 }
 
 function visible(room, handle) {
+  const game = (room.game.rule_version ?? 1) >= 2 && active(room.game) && !room.game.rituals
+    ? JSON.parse(core.advance_game(JSON.stringify(room.game), 0)) : room.game;
   return {
     id: room.id, host: room.host, guest: room.guest, joined: room.joined,
-    viewer: playerIndex(room, handle), game: room.game, version: room.version,
+    viewer: playerIndex(room, handle), game, version: room.version,
   };
 }
 

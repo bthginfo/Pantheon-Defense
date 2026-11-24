@@ -20,8 +20,9 @@ Rom und Japan bringen 36 Truppen, 24 Helden und neun Gebäude aufs Brett.
    Uncommon, Rare, Epic und Legendary.
 4. Ziehe bewegliche Figuren auf ein hervorgehobenes Feld oder nutze **Verschieben**.
    Zwei bewegliche Trupps können die Plätze tauschen. Gebäude bleiben auf dem
-   gewählten Bauplatz. Helden beschwörst du aus drei passenden Einheiten. Im
-   Kampf setzt du ihre Fähigkeiten ein.
+   gewählten Bauplatz. Unter **Helden** siehst du, wer beschwörbar ist und
+   welche Einheiten noch fehlen. Eine Beschwörung kostet Gold und verbraucht
+   die Einheiten des Rezepts. Im Kampf setzt du die Fähigkeiten deiner Helden ein.
 5. Wellen wechseln nach Zeit. Gegner bleiben auf dem Rundkurs, bis sie besiegt
    sind. Der gemeinsame Gegnerzähler und die Bossfristen entscheiden über den
    Ausgang. Gold, Essenz, Orakel und Schmiede helfen dir beim Ausbau.

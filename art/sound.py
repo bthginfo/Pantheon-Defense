@@ -63,6 +63,8 @@ def save(name, left, right):
             f.writeframes(packet)
         run(["ffmpeg","-nostdin","-v","error","-y","-i",str(src),"-c:a","libvorbis","-q:a","5",
             str(OUT / f"{name}.ogg")],check=True)
+        run(["ffmpeg","-nostdin","-v","error","-y","-i",str(OUT / f"{name}.ogg"),"-c:a","libmp3lame","-q:a","5",
+            str(OUT / f"{name}.mp3")],check=True)
 
 def score(name, scale, roots, pattern, pulse):
     if SELECTED and name not in SELECTED:

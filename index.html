@@ -106,9 +106,13 @@
 
   <main class="match-shell" id="match" hidden>
     <div class="match-bar">
-      <button class="quiet" id="back-to-hub">‹ Bastion</button>
+      <div class="match-left">
+        <button class="quiet" id="back-to-hub">‹ Bastion</button>
+        <button class="match-icon" id="match-options" aria-label="Partiemenü öffnen" title="Partiemenü öffnen" hidden>⋯</button>
+      </div>
       <div class="match-title"><h1 id="match-map"></h1><span id="match-type"></span></div>
       <div class="match-tools"><div class="connection" id="connection"><i></i><span>Verbindet …</span></div>
+         <button class="match-icon match-audio" id="match-sound" aria-label="Ton einschalten" aria-pressed="false"><span aria-hidden="true">♫</span></button>
          <button class="fullscreen-button" id="fullscreen-button" aria-pressed="false" title="Vollbild öffnen" type="button">
            <span class="screen-icon" aria-hidden="true"></span></button></div>
     </div>
@@ -162,6 +166,14 @@
       <p data-error id="invite-error" role="alert"></p>
       <button class="primary" id="accept-invite">Einladung annehmen</button>
     </div>
+  </dialog>
+
+  <dialog id="match-menu" class="dialog" aria-labelledby="match-menu-title">
+    <form method="dialog">
+      <h2 id="match-menu-title">Partie</h2>
+      <button class="primary" value="continue">Weiterspielen</button>
+      <button type="button" id="open-forfeit" class="quiet">Partie aufgeben</button>
+    </form>
   </dialog>
 
   <dialog id="leave-dialog" class="dialog">

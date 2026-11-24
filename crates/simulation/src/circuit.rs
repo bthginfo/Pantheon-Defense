@@ -2,6 +2,8 @@ use super::*;
 use std::sync::OnceLock;
 
 pub const CIRCUIT_RULES: u8 = 2;
+const HERO_PRICE: i32 = 65;
+const HERO_LIMIT: usize = 3;
 const TILES: [Point; 32] = [
     [-4.35, -6.70],
     [-1.47, -6.70],
@@ -115,6 +117,57 @@ struct Course {
 }
 
 static ROUTES: OnceLock<[[Course; 2]; 3]> = OnceLock::new();
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RitualBlocker {
+    Level,
+    HeroLimit,
+    Ingredients,
+    Field,
+    Gold,
+}
+
+impl RitualBlocker {
+    fn message(self) -> &'static str {
+        match self {
+            Self::Level => "Dieser Held ist noch gesperrt.",
+            Self::HeroLimit => "Du hast bereits drei Helden auf dem Feld.",
+            Self::Ingredients => "Dir fehlen Einheiten für die Beschwörung.",
+            Self::Field => "Mach ein Feld frei, damit der Held erscheinen kann.",
+            Self::Gold => "Dafür fehlt dir Gold.",
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct RitualIngredient<'a> {
+    actor: &'a str,
+    have: u8,
+    need: u8,
+}
+
+#[derive(Serialize)]
+struct RitualOffer<'a> {
+    actor: &'a str,
+    ingredients: Vec<RitualIngredient<'a>>,
+    blockers: Vec<RitualBlocker>,
+}
+
+struct RitualPlan<'a> {
+    offer: RitualOffer<'a>,
+    slot: Option<usize>,
+    consumed: BTreeMap<u32, u8>,
+}
+
+#[derive(Serialize)]
+#[cfg(any(target_arch = "wasm32", test))]
+pub(crate) struct RitualReport<'a> {
+    active: usize,
+    limit: usize,
+    price: i32,
+    offers: Vec<RitualOffer<'a>>,
+}
 
 pub fn squad_damage(tier: u8, rank: u8, count: u8, mastery: u8, temper: u8, circuit: bool) -> f32 {
     let rarity = if circuit {
@@ -442,59 +495,21 @@ impl Game {
         let hero = actor(hero)
             .filter(|a| a.kind == "hero" && a.theme == self.theme && !a.recipe.is_empty())
             .ok_or("Dieser Held ist in dieser Schlacht nicht verfügbar.")?;
-        if !self.on_circuit() || !self.accessible(player, hero) {
-            return Err("Dieser Held ist noch gesperrt.");
+        if !self.on_circuit() {
+            return Err(RitualBlocker::Level.message());
         }
-        if self
-            .pieces
-            .iter()
-            .filter(|piece| {
-                piece.owner == player && actor(&piece.actor).is_some_and(|a| a.kind == "hero")
-            })
-            .count()
-            >= 3
-        {
-            return Err("Du hast bereits drei Helden auf dem Feld.");
+        let plan = self.ritual_plan(
+            player,
+            hero,
+            self.active_heroes(player),
+            self.circuit_free(player, None),
+        );
+        if let Some(&blocker) = plan.offer.blockers.first() {
+            return Err(blocker.message());
         }
-        let mut recipe = BTreeMap::<&str, u8>::new();
-        for ingredient in &hero.recipe {
-            *recipe.entry(ingredient).or_default() += 1;
-        }
-        let mut candidates: Vec<_> = self
-            .pieces
-            .iter()
-            .filter(|piece| piece.owner == player && recipe.contains_key(piece.actor.as_str()))
-            .map(|piece| {
-                (
-                    piece.id,
-                    piece.slot,
-                    piece.actor.as_str(),
-                    piece.stack,
-                    piece.rank,
-                )
-            })
-            .collect();
-        candidates.sort_by_key(|(id, _, _, _, rank)| (*rank, *id));
-        let mut consumed = BTreeMap::new();
-        let mut slotted = None;
-        for (id, slot, name, count, _) in candidates {
-            let amount = recipe.get_mut(name).unwrap();
-            let used = (*amount).min(count);
-            *amount -= used;
-            if used > 0 {
-                consumed.insert(id, used);
-            }
-            if used == count && slotted.is_none() {
-                slotted = Some(slot);
-            }
-        }
-        if recipe.values().any(|amount| *amount > 0) {
-            return Err("Dir fehlen Einheiten für die Beschwörung.");
-        }
-        let slot = slotted
-            .or_else(|| self.circuit_free(player, None))
-            .ok_or("Du brauchst ein freies Feld für den Helden.")?;
-        self.spend(player, 65)?;
+        let slot = plan.slot.ok_or(RitualBlocker::Field.message())?;
+        let consumed = plan.consumed;
+        self.spend(player, HERO_PRICE)?;
         for piece in &mut self.pieces {
             if let Some(used) = consumed.get(&piece.id) {
                 piece.stack -= used;
@@ -506,6 +521,122 @@ impl Game {
         let id = self.pieces.last().unwrap().id;
         self.event("ritual", &hero.id, id, self.tiles()[slot], 5.);
         Ok(())
+    }
+
+    fn active_heroes(&self, player: usize) -> usize {
+        self.pieces
+            .iter()
+            .filter(|piece| {
+                piece.owner == player && actor(&piece.actor).is_some_and(|a| a.kind == "hero")
+            })
+            .count()
+    }
+
+    fn ritual_plan<'a>(
+        &self,
+        player: usize,
+        hero: &'a Actor,
+        active: usize,
+        free: Option<usize>,
+    ) -> RitualPlan<'a> {
+        let mut recipe = BTreeMap::<&str, u8>::new();
+        for ingredient in &hero.recipe {
+            *recipe.entry(ingredient).or_default() += 1;
+        }
+        let mut candidates: Vec<_> = self
+            .pieces
+            .iter()
+            .filter(|piece| {
+                piece.owner == player
+                    && piece.stack > 0
+                    && recipe.contains_key(piece.actor.as_str())
+            })
+            .collect();
+        candidates.sort_by_key(|piece| (piece.rank, piece.id));
+        let ingredients = recipe
+            .iter()
+            .map(|(&id, &need)| RitualIngredient {
+                actor: id,
+                have: candidates
+                    .iter()
+                    .filter(|p| p.actor == id)
+                    .map(|p| p.stack)
+                    .fold(0, u8::saturating_add),
+                need,
+            })
+            .collect::<Vec<_>>();
+        // On a full board, favour a stack the recipe can use up to make room for the hero.
+        if free.is_none() {
+            if let Some(index) = candidates
+                .iter()
+                .position(|piece| piece.stack <= recipe[piece.actor.as_str()])
+            {
+                candidates[..=index].rotate_right(1);
+            }
+        }
+        let mut consumed = BTreeMap::new();
+        let mut emptied = None;
+        for piece in candidates {
+            let amount = recipe.get_mut(piece.actor.as_str()).unwrap();
+            let used = (*amount).min(piece.stack);
+            *amount -= used;
+            if used > 0 {
+                consumed.insert(piece.id, used);
+            }
+            if used == piece.stack && emptied.is_none() {
+                emptied = Some(piece.slot);
+            }
+        }
+        let slot = emptied.or(free);
+        let missing = recipe.values().any(|&amount| amount > 0);
+        let blockers = [
+            (!self.accessible(player, hero), RitualBlocker::Level),
+            (active >= HERO_LIMIT, RitualBlocker::HeroLimit),
+            (missing, RitualBlocker::Ingredients),
+            (!missing && slot.is_none(), RitualBlocker::Field),
+            (self.players[player].gold < HERO_PRICE, RitualBlocker::Gold),
+        ]
+        .into_iter()
+        .filter_map(|(blocked, reason)| blocked.then_some(reason))
+        .collect();
+        RitualPlan {
+            offer: RitualOffer {
+                actor: &hero.id,
+                ingredients,
+                blockers,
+            },
+            slot,
+            consumed,
+        }
+    }
+
+    #[cfg(any(target_arch = "wasm32", test))]
+    pub(crate) fn ritual_reports(&self) -> Vec<RitualReport<'static>> {
+        if !self.on_circuit() || !matches!(self.phase, Phase::Prep | Phase::Combat) {
+            return Vec::new();
+        }
+        (0..self.players.len())
+            .map(|player| {
+                let active = self.active_heroes(player);
+                let free = self.circuit_free(player, None);
+                let offers = catalog()
+                    .actors
+                    .iter()
+                    .filter(|actor| {
+                        actor.kind == "hero"
+                            && actor.theme == self.theme
+                            && !actor.recipe.is_empty()
+                    })
+                    .map(|hero| self.ritual_plan(player, hero, active, free).offer)
+                    .collect();
+                RitualReport {
+                    active,
+                    limit: HERO_LIMIT,
+                    price: HERO_PRICE,
+                    offers,
+                }
+            })
+            .collect()
     }
 
     pub(crate) fn accessible(&self, player: usize, actor: &Actor) -> bool {
@@ -608,6 +739,77 @@ mod tests {
         .unwrap();
         game.apply(0, Action::Start).unwrap();
         game
+    }
+
+    #[test]
+    fn ritual_status_counts_owned_units_on_the_board_and_reports_each_blocker() {
+        let mut game = opened(vec![1, 1]);
+        game.players[0].gold = 64;
+        game.add_piece(0, 16, "hoplite", 1);
+        game.add_piece(0, 17, "slinger", 1);
+        game.add_piece(1, 0, "hoplite", 1);
+        game.reserve_recruit(0, actor("hoplite").unwrap());
+        let report = &game.ritual_reports()[0];
+        let thekla = report
+            .offers
+            .iter()
+            .find(|offer| offer.actor == "thekla")
+            .unwrap();
+        assert_eq!(thekla.ingredients[0].have, 1);
+        assert_eq!(thekla.ingredients[0].need, 2);
+        assert_eq!(
+            thekla.blockers,
+            [RitualBlocker::Ingredients, RitualBlocker::Gold]
+        );
+        assert_eq!(
+            game.ritual(0, "thekla"),
+            Err(RitualBlocker::Ingredients.message())
+        );
+
+        game.pieces[0].stack = 2;
+        game.players[0].gold = HERO_PRICE;
+        assert!(game.ritual_reports()[0].offers[0].blockers.is_empty());
+        game.ritual(0, "thekla").unwrap();
+        assert_eq!(game.players[0].gold, 0);
+        assert_eq!(game.ritual_reports()[0].active, 1);
+        assert_eq!(game.pieces.iter().filter(|p| p.owner == 0).count(), 1);
+        assert_eq!(game.pieces[0].owner, 1);
+    }
+
+    #[test]
+    fn ritual_uses_a_stack_that_can_free_a_field_on_a_full_board() {
+        let mut game = opened(vec![1, 1]);
+        game.players[0].gold = 180;
+        for slot in 16..32 {
+            game.add_piece(
+                0,
+                slot,
+                match slot {
+                    16 | 18 => "hoplite",
+                    17 => "slinger",
+                    _ => "toxotes",
+                },
+                1,
+            );
+            game.pieces.last_mut().unwrap().stack = 3;
+        }
+        let thekla = actor("thekla").unwrap();
+        let plan = game.ritual_plan(0, thekla, 0, None);
+        assert_eq!(plan.offer.blockers, [RitualBlocker::Field]);
+        assert_eq!(
+            game.ritual(0, "thekla"),
+            Err(RitualBlocker::Field.message())
+        );
+        assert_eq!(game.players[0].gold, 180);
+
+        game.pieces[2].stack = 1;
+        game.pieces[2].rank = 2;
+        assert!(game.ritual_reports()[0].offers[0].blockers.is_empty());
+        game.ritual(0, "thekla").unwrap();
+        let at = |slot| game.pieces.iter().find(|piece| piece.slot == slot).unwrap();
+        assert_eq!(at(18).actor, "thekla");
+        assert_eq!((at(16).stack, at(17).stack), (2, 2));
+        assert_eq!(game.pieces.len(), 16);
     }
 
     #[test]
