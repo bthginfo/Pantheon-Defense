@@ -65,9 +65,8 @@ Spielstände. Derselbe Zustand lässt sich nach einer unterbrochenen Verbindung 
 
 ## Grafik und Blender-Quellen
 
-Die [Studiotafeln](art/references) enthalten die Entwürfe für Figuren, Kreaturen
-und Festungen in mehreren Ansichten. Die [Figurenansichten](art/references/blender-figuren.webp)
-zeigen die fertigen Blender-Modelle. Die editierbaren Blender-Szenen liegen in
+Die [Grafikreview](art/references/review-v6.md) stellt die Karten und Figuren von V6
+den Entwürfen und V5 gegenüber. Die editierbaren Blender-Szenen liegen in
 [`art/blend`](art/blend). Jede Arena wird mit berechneten Licht- und
 Kontaktschatten in ein Mesh exportiert. Truppen, Helden, Gegner und Gebäude
 verwenden Armaturen. Studiolichter und Kameras gehören zu den Blender-Szenen

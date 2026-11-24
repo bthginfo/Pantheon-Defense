@@ -228,7 +228,10 @@
   .circuit-game .battle-meter strong { font-size:1.29rem; }
   .circuit-game .battle-meter span { font-size:.64rem; }
   .circuit-game .battle-meter small { font-size:.59rem; }
-  .circuit-game .boss-health { top:68px; padding:3px 7px 5px; }
+  .circuit-game .boss-health {
+    top:79px; padding:3px 7px; display:flex; align-items:center; gap:8px;
+  }
+  .circuit-game .boss-health strong { flex-shrink:0; }
   .circuit-game .stage-legend { bottom:5px; left:4px; }
   .circuit-game .stage-legend span { padding:2px 4px; }
   .circuit-game .scene-note { bottom:21px; padding:3px 7px; font-size:.69rem; }

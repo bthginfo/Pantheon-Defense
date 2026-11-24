@@ -2,6 +2,7 @@
 import math
 import random
 import sys
+from argparse import ArgumentParser
 from pathlib import Path
 
 import bpy
@@ -9,8 +10,9 @@ from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from forge import ASSETS, MODELS, SOURCES, clean, empty, look_at, material, span, stone
-from geometry import bevel_block as block, color_material, mesh_object, pigment_family, shell, studio, volume
+from forge import ASSETS, MODELS, SOURCES, clean, empty, look_at, material
+from geometry import bevel_block as block, color_material, mesh_object, pigment_family, shell, span, stone, studio, volume
+from landmarks import forum, regional_sites, terrace_tile
 
 # These are the local coordinates used by the circuit in the simulation. Blender is Z-up.
 COLUMNS = (-4.35, -1.47, 1.47, 4.35)
@@ -98,11 +100,15 @@ def sections(name, inside, outside, width, z, thickness, colors, root, rng, irre
             left = start+.009*(end-start)
             right = end-.009*(end-start)
             p = [a.lerp(b,left), c.lerp(d,left), c.lerp(d,right), a.lerp(b,right)]
+            if irregular:
+                # Clip the two longest corners before beveling this flagstone.
+                p = [p[0].lerp(p[3], .047),p[0].lerp(p[1],.13),p[1],
+                     p[2].lerp(p[1],.061),p[2].lerp(p[3],.145),p[3]]
             p = [(v.x,v.y) for v in p]
             facing = sum(x*y2-x2*y for (x,y),(x2,y2) in zip(p,p[1:]+p[:1]))
             if facing < 0:
                 p.reverse()
-            middle = sum((Vector(v) for v in p), Vector((0,0)))/4
+            middle = sum((Vector(v) for v in p), Vector((0,0)))/len(p)
             inset = [middle.lerp(Vector(v),.929) for v in p]
             h = rng.uniform(-.008,.008) if irregular else 0
             volume(name, [
@@ -115,7 +121,7 @@ def sections(name, inside, outside, width, z, thickness, colors, root, rng, irre
 def paving(root, theme, rng, points, m):
     base = outline(points, .78)
     volume("Sculpted island limestone bed", rings(base,[(-1.13,.91),(-.76,1.04),(-.29,1.012),(.25,1.0)]),m["base"],root)
-    lower = outline(points, .92)
+    lower = outline(points, 1.03)
     sections("Cut stone retaining blocks", outline(points,.53), lower, .82, -.34, .35, m["wall"], root,rng,True)
     sections("Staggered masonry", outline(points,.55), outline(points,.84), 1.06, -.027, .35,m["wall"],root,rng,True)
     sections("Hewn seawall caps", outline(points,.69), outline(points,.92), .75,.285,.18,m["pave"],root,rng,True)
@@ -124,8 +130,8 @@ def paving(root, theme, rng, points, m):
     else:
         sections("Glazed wall band",outline(points,.79),outline(points,.86),.24,.065,.13,m["mosaic"],root,rng)
     inner, mid, outer = outline(points,-.70),outline(points,-.11),outline(points,.69)
-    sections("Inner flagstone", inner, mid, .84,.333,.16,m["pave"],root,rng,True)
-    sections("Outer flagstone", mid, outer, .94,.330,.15,m["pave"],root,rng,True)
+    sections("Inner flagstone", inner, mid, .646,.333,.16,m["pave"],root,rng,True)
+    sections("Outer flagstone", mid, outer, .784,.330,.15,m["pave"],root,rng,True)
     sections("Path trim",outline(points,-.77),outline(points,-.68),.89,.34,.100,m["wall"],root,rng)
     for y in (-4.19,4.19):
         block("Training court stone bed",(0,y,.277),(11.55,6.88,.151),m["grout"],root,.065)
@@ -140,22 +146,13 @@ def paving(root, theme, rng, points, m):
         for i,x in enumerate(COLUMNS):
             tint=m["zone"][(i+2*j+rng.randrange(3))%len(m["zone"])]
             root_color=m["blue" if y<0 else "red"]
-            block("Hand-dressed formation slab",(x,-y,.322),(2.815,1.591,.13),tint,root,.039)
+            index=m["zone"].index(tint)
+            accents=[m["zone"][(index+offset)%len(m["zone"])] for offset in (1,2)]
+            terrace_tile(root,x,-y,tint,accents,rng)
             for side in (-1,1):
-                block("Corner camp inlay",(x+side*1.17,-y-.59,.393),(.095,.095,.014),root_color,root,.006,math.pi/4)
-    # A single low mosaic wall-to-wall plaza keeps all unit silhouettes visible.
-    block("Forum mosaic mortar",(0,0,.279),(11.46,1.31,.155),m["ink"],root)
-    for i in range(43):
-        x=(i-21)*.261
-        for j in range(5):
-            y=(j-2)*.245
-            wave=2*math.sin(i*.48)+2
-            index=4 if j in (0,4) else (3 if abs(j-wave)<1 else (i+j)%3)
-            inlay("Water-and-laurel tessera",x,y,.365,.254,.236,m["mosaic"][index],root)
-    bowl=m["mosaic"][2]
-    shell("Low font foundation",[(.34,.6,.42,0,0),(.40,.57,.40,0,0),(.46,.50,.36,0,0)],
-        m["top"],root,12)
-    shell("Reflecting mosaic well",[(.457,.424,.282,0,0),(.465,.424,.282,0,0)],bowl,root,12)
+                block("Small diamond of the camp inlay",(x+side*1.18,-y-.608,.391),
+                      (.092,.092,.014),root_color,root,.009,math.pi/4)
+    forum(root,theme,m)
 
 
 def slabs(root, a, b, z, colors, rng):
@@ -167,7 +164,7 @@ def slabs(root, a, b, z, colors, rng):
 
 
 def sea_and_shore(root, theme, points, m, rng):
-    # Several rings of differently coloured triangles create an underwater shelf.
+    # Draw the shore and the open water from the same coloured triangulated surface.
     coast=outline(points, .92)
     edges=[]
     for i,a in enumerate(coast):
@@ -178,7 +175,7 @@ def sea_and_shore(root, theme, points, m, rng):
             edges.append(p+n*rng.uniform(-.12, .39))
     sea_rings = [
         [p*factor+Vector((rng.uniform(-.42,.42),rng.uniform(-.35,.35))) for p in edges]
-        for factor in (1.02,1.12,1.25,1.49,1.92,2.65,4.0)
+        for factor in (1.02,1.12,1.25,1.49,1.92,2.65,8.0)
     ]
     count=len(edges)
     verts=[(p.x,p.y,-.94) for ring in sea_rings for p in ring]
@@ -193,7 +190,7 @@ def sea_and_shore(root, theme, points, m, rng):
     for color in m["water"]:
         sheet.data.materials.append(color)
     for i, face in enumerate(sheet.data.polygons):
-        face.material_index=min(4,max(0,4-i//(count*2)+rng.choice((-1,0,0,0,1))))
+        face.material_index=min(4,max(0,4-i//(count*2)))
     for i, p in enumerate(edges):
         shore=p*1.035
         n=p.normalized()
@@ -201,18 +198,38 @@ def sea_and_shore(root, theme, points, m, rng):
         t=(b-p).normalized()
         if rng.random()<.86:
             center=shore+n*rng.uniform(-.02,.22)
-            size=.21+rng.random()*.36
-            crag=stone("Angular shore boulder",(center.x,center.y,-.66-sqrt_noise(i)*.12),
-                (size*1.61,size*1.19,.31+rng.random()*.35),rng.choice(m["low"]),root,1 if i%3 else 2)
+            size=.26+rng.random()*.39
+            crag=stone("Angular shore boulder",(center.x,center.y,-.68-sqrt_noise(i)*.12),
+                (size*1.70,size*1.22,.37+rng.random()*.41),rng.choice(m["low"]),root,1 if i%3 else 2)
             crag.rotation_euler=(rng.uniform(-.3,.3),rng.uniform(-.4,.4),rng.random()*math.tau)
         if i%2:
             slabs(root,p*1.018,b*1.024,-.55,m["low"],rng)
+        else:
+            bank=(p+b)*.505
+            rock=stone("Upper ledge of the rugged coast",(bank.x,bank.y,-.345),
+                 (.66,.63,.485),m["wall"][i%len(m["wall"])],root,1)
+            rock.rotation_euler.z=math.atan2(t.y,t.x)
+            if i%4==0:
+                for offset in (-.26,.13):
+                    leaves=bank+t*offset-n*.07
+                    stone("Low moss against the retaining stone",(leaves.x,leaves.y,-.011),
+                          (.197,.128,.089),m["leaf"][i%5],root,1)
+        if i%3!=1:
+            n1=b.normalized()
+            p0=p.lerp(b,.09)+n*.38
+            p1=p.lerp(b,.93)+n1*.39
+            p2=p1+n1*.086
+            p3=p0+n*.066
+            mesh_object("Fragment of white tide foam",[(q.x,q.y,-.922) for q in (p0,p1,p2,p3)],
+                        [(0,1,2,3)],m["surf"][2 if i%2 else 3],root)
         for j in range(rng.randint(1,3)):
             origin=shore+n*(.34+(.155*j))+t*rng.uniform(-.36,.36)
             width=rng.uniform(.27,.75)
             ripple=m["surf"][min(3,j+int(rng.random()<.37))]
-            surface=[origin-t*width,origin+t*width*.91,origin+t*.27+n*.046,origin-t*.25+n*.07]
-            mesh_object("Broken surf ribbon",[(a.x,a.y,-.925+.002*j) for a in surface],[(0,1,2,3)],ripple,root)
+            surface=[origin-t*width,origin-t*.27-n*.031,origin+t*.27-n*.043,
+                     origin+t*width*.91,origin+t*.24+n*.047,origin-t*.25+n*.056]
+            mesh_object("Broken surf ribbon",[(a.x,a.y,-.925+.002*j) for a in surface],
+                        [(0,1,5),(1,2,4,5),(2,3,4)],ripple,root)
     for i in range(39):
         ang=rng.random()*math.tau
         x=math.cos(ang)*rng.uniform(9.,21.)
@@ -227,16 +244,6 @@ def sea_and_shore(root, theme, points, m, rng):
 
 def sqrt_noise(i):
     return .5+.5*math.sin(i*1.73)
-
-
-def column(root,x,y,height,m,base=.31):
-    block("Carved square column foot",(x,y,base+.09),(.52,.52,.18),m["top"],root,.026)
-    shell("Moulded pillar",[
-        (base+.17,.18,.18,x,y),(base+.24,.152,.152,x,y),
-        (base+height-.19,.126,.126,x,y),(base+height-.11,.189,.189,x,y),
-        (base+height-.057,.189,.189,x,y),
-    ],m["pave"][3],root,10)
-    block("Pillar cornice",(x,y,base+height),(.50,.46,.14),m["top"],root,.028)
 
 
 def pediment(root, origin, width, depth, lift, m, theme):
@@ -265,43 +272,8 @@ def pediment(root, origin, width, depth, lift, m, theme):
 
 
 def architecture(main, theme, m, rng):
+    regional_sites(main,theme,m)
     for side in (-1,1):
-        arch=empty("Entrance temple", (side*2.56,side*9.93,.13),main)
-        if side < 0:
-            arch.rotation_euler.z=math.pi
-        depth=1.02
-        block("Temple stone landing",(0,0,.08),(2.03,depth,.27),m["wall"][1],arch,.066)
-        for s in (-1,1):
-            if theme=="japan":
-                for x in (s*.70, s*.41):
-                    block("Vermilion shrine post",(x,0,.68),(.13,.13,1.11),m["red"],arch,.021)
-                block("White paper panel",(s*.55,0,.66),(.30,.061,.54),m["top"],arch,.013)
-            else:
-                column(arch,s*.67,-.21,.99,m,.205)
-                block("Recessed portal pilaster",(s*.58,.29,.63),(.24,.28,.86),m["wall"][0],arch)
-        block("Door in shadow",(0,.36,.64),(.69,.17,.85),m["ink"],arch)
-        block("Architrave",(0,0,1.185),(1.81,.80,.15),m["top"],arch,.035)
-        pediment(arch,(0,0,1.28),1.80,.92,.46,m,theme)
-        for step in range(4):
-            block("Harbor stair",(0,-.51-.156*step,.212-.094*step),
-                  (1.32+.05*step,.328,.17),m["pave"][step],arch,.032)
-        stairs=empty("Stairs down to the water",(-side*2.27,side*9.81,-.04),main)
-        if side<0:
-            stairs.rotation_euler.z=math.pi
-        for i in range(7):
-            block("Dressed quay stair",(0,.187*i,.05-i*.135),(1.97,.29,.229),
-                  rng.choice(m["wall"]),stairs,.051)
-        for x in (-1.09,1.09):
-            block("Stone stair pier",(x,.03,.15),(.27,.42,.58),m["pave"][1],stairs,.046)
-        if theme != "japan":
-            for x,y in ((-.91*side,9.76*side),(.89*side,9.7*side),(-3.8*side,9.64*side)):
-                column(main,x,y,.84 if x*side>.2 else .63,m,.245)
-        if theme=="rome":
-            for y in (-7.2,-5.24,-3.22,3.22,5.24,7.2):
-                x=side*7.32
-                block("Terracotta outer bastion pier",(x,y,-.005),(.52,.50,.80),m["wall"][1],main,.063)
-                block("Stone parapet cap",(x,y,.43),(.59,.60,.16),m["top"],main,.045)
-                block("Crenel",(x,y,.56),(.32,.26,.18),m["wall"][2],main,.025)
         if side==1 or theme!="rome":
             pier=empty("Quayside shelter",(-6.47*side,9.07*side,-.31),main)
             pier.rotation_euler.z=side*.59
@@ -314,8 +286,11 @@ def architecture(main, theme, m, rng):
         for n in range(4):
             x=side*(6.89+rng.uniform(0,.39))
             y=side*([-8.07,-4.66,1.04,6.63][n])+rng.uniform(-.21,.21)
-            h=rng.uniform(.82,1.37)
+            h=rng.uniform(1.02,1.58)
             planting(main,theme,x,y,-.08,h,m,rng, blossom=theme=="japan" and n%2==0)
+        for x in (-4.12,3.90):
+            h={"aegean":1.34,"rome":2.04,"japan":1.78}[theme]
+            planting(main,theme,x,side*10.55,-.103,h,m,rng,blossom=theme=="japan")
 
 
 def harbor_detail(root,theme,m):
@@ -358,17 +333,22 @@ def planting(root,theme,x,y,z,h,m,rng,blossom=False):
         shell("Tapered Italian cypress",[(z+.18*h,.15,.16,x,y),(z+.47*h,.29,.26,x,y),
             (z+.94*h,.13,.14,x+.05*h,y),(z+1.37*h,.025,.04,x+.07*h,y)],m["leaf"][1],root,7,False,.34)
     else:
-        mid=Vector((x+.12*h,y-.05*h,z+.57*h))
-        span("Weathered branching trunk",o,mid,.109*h,m["wood"][0],root,7,.065*h)
-        pink=pigment_family("Sakura petal facets",["d59b9a","e9b8aa","edc7b9","bf828d"]) if blossom else None
-        for k in range(5):
-            t=k*math.tau/5+rng.uniform(0,.39)
-            point=mid+Vector((math.cos(t)*h*.41,math.sin(t)*h*.41,h*(.36+rng.uniform(0,.21))))
-            span("Angular branch",mid,point,.052*h,m["wood"][1],root,6,.02*h)
-            s=.31*h
-            crown=stone("Sakura canopy" if blossom else "Olive foliage",point,
-                (1.23*s,s,.74*s),rng.choice(pink or m["leaf"]),root,1 if k%2 else 2)
-            crown.rotation_euler.z=rng.random()*math.tau
+        middle=Vector((x+.06*h,y+.063*h,z+.37*h))
+        mid=Vector((x+.18*h,y-.094*h,z+.62*h))
+        span("Gnarled lower trunk",o,middle,.117*h,m["wood"][0],root,7,.089*h)
+        span("Tapered knot of the trunk",middle,mid,.081*h,m["wood"][1],root,7,.051*h)
+        pink=pigment_family("Sakura petal facets",["ca8990","df9fad","edb9bb","f4ccbb","bb7b85"]) if blossom else None
+        for k in range(7):
+            t=k*math.tau/7+rng.uniform(0,.39)
+            reach=rng.uniform(.28,.53)*h
+            point=mid+Vector((math.cos(t)*reach,math.sin(t)*reach,h*(.28+rng.uniform(0,.36))))
+            span("Visible angular branch",mid,point,.049*h,m["wood"][1],root,6,.013*h)
+            for fan in range(2):
+                s=(.203+fan*.026+rng.uniform(-.035,.046))*h
+                tip=point+Vector((math.cos(t+.85*fan)*s,-math.sin(t+.85*fan)*s,.083*h*fan))
+                crown=stone("Clustered cherry blossom" if blossom else "Angular olive crown",tip,
+                    (1.26*s,s,.82*s),rng.choice(pink or m["leaf"]),root,1 if k%2 else 2)
+                crown.rotation_euler.z=rng.random()*math.tau
     for k in range(3):
         t=rng.random()*math.tau
         size=.17+rng.random()*.10
@@ -405,7 +385,7 @@ def rifts(root,theme,m):
             block("Warm rift reflections",(-.41+.37*i,-.12,.105),(.25,.30,.021),light[i+1],portal,.015)
 
 
-def bake(main,theme):
+def bake(main,theme,m):
     bpy.context.view_layer.update()
     depsgraph=bpy.context.evaluated_depsgraph_get()
     pieces=[obj for obj in main.children_recursive if obj.type=="MESH"]
@@ -423,7 +403,10 @@ def bake(main,theme):
             metadata.append((tuple(pigment), (normal_matrix @ polygon.normal).normalized(), obj.name))
         evaluated.to_mesh_clear()
     bvh=BVHTree.FromPolygons(points,faces)
-    shade_rays=[Vector(d).normalized() for d in ((-.53,-.64,.99),(-.44,-.62,1.01),(-.53,-.51,1.13))]
+    shade_rays=[Vector(d).normalized() for d in ((-.70,-.61,1.20),(-.63,-.70,1.17),(-.75,-.53,1.18))]
+    deep=tuple(m["water"][0].diffuse_color)
+    shallow=tuple(m["water"][4].diffuse_color)
+    rift_sites=[Vector((x*1.105,-y*1.03,.50)) for x,y in (ROUTE[0],ROUTE[4])]
     ao_rays=[Vector(d).normalized() for d in ((.8,0,.5),(-.8,0,.5),(0,.8,.5),(0,-.8,.5))]
     pigment=color_material("Daylight baked onto carved stone and coast",unlit=True)
     mesh=mesh_object("Arena mesh with portable baked lighting",points,faces,pigment,None)
@@ -432,26 +415,37 @@ def bake(main,theme):
     for face,(color,n,name) in zip(mesh.data.polygons,metadata):
         center=face.center
         sky=.6+.40*max(0.,n.z)
-        if name.startswith(("Faceted, mineral","Streak","Broken surf","Rift glass","Facet-cut")):
-            values=[color]*len(face.loop_indices)
-        else:
-            light=max(.0,n.dot(shade_rays[0]))
-            shadow=1-sum(bvh.ray_cast(center+n*.014+ray*.004,ray,10.)[2] is not None
-                         for ray in shade_rays)/3
+        if name.startswith("Faceted, mineral"):
             values=[]
             for index in face.vertices:
-                site=points[index].lerp(center,.19)+n*.021
-                occupied=sum(bvh.ray_cast(site+ray*.015,ray,.49)[2] is not None
-                             for ray in ao_rays if ray.dot(n) > -.04)
-                contact=1-.084*occupied
-                amount=(.43+.23*sky+light*shadow*.52)*contact
-                warmth=shadow*light
                 v=points[index]
-                grain=.974+.036*math.sin(v.x*2.173+v.y*3.219+v.z*3.691)
+                distance=math.hypot(v.x/7.7,v.y/10.37)
+                transition=max(0.,min(1.,1.01-(distance-0.89)*1.78))
+                wave=.009+.010*math.sin(v.x*1.81+v.y*.51)+.007*math.sin(v.x*.42-v.y*1.61)
+                light=.962+wave*3.2
+                values.append(tuple((deep[k]*(1-transition)+shallow[k]*transition)*light+.011*color[k]
+                                    for k in range(3))+(1.,))
+        elif name.startswith(("Streak","Broken surf","Fragment of white","Facet-cut")):
+            values=[color]*len(face.loop_indices)
+        else:
+            daylight=max(0.,n.dot(shade_rays[0]))
+            values=[]
+            for index in face.vertices:
+                v=points[index]
+                site=v.lerp(center,.21)+n*.023
+                shadow=1-sum(bvh.ray_cast(site+ray*.007,ray,11.)[2] is not None
+                             for ray in shade_rays)/len(shade_rays)
+                occupied=sum(bvh.ray_cast(site+ray*.011,ray,.39)[2] is not None
+                             for ray in ao_rays if ray.dot(n)>-.04)
+                contact=1-.072*occupied
+                light=daylight*shadow
+                amount=(.47+.185*sky+.602*light)*contact
+                grain=(.987+.026*math.sin(v.x*3.13-v.y*2.49+v.z*4.11))
                 amount*=grain
-                values.append((color[0]*amount*(.925+.14*warmth),
-                               color[1]*amount*(.984+.043*warmth),
-                               color[2]*amount*(1.13-.11*warmth),1.))
+                halo=sum(max(0.,1.-(v-gate).length/1.07)**2 for gate in rift_sites)*max(0.,n.z)
+                values.append((color[0]*amount*(.921+.186*light)+.069*halo,
+                               color[1]*amount*(.972+.048*light)+.007*halo,
+                               color[2]*amount*(1.15-.198*light)+.093*halo,1.))
         for loop, value in zip(face.loop_indices,values):
             attribute.data[loop].color=value
     source=bpy.data.collections.new("Editable masonry, scenery, and site layout")
@@ -466,7 +460,7 @@ def bake(main,theme):
     return mesh
 
 
-def build(theme, review):
+def build(theme, review_directory):
     clean()
     rng=random.Random(theme)
     m={k: pigment_family(k,v) if isinstance(v,list) else material(k,v) for k,v in PALETTES[theme].items()}
@@ -477,8 +471,8 @@ def build(theme, review):
     architecture(root,theme,m,rng)
     harbor_detail(root,theme,m)
     rifts(root,theme,m)
-    mesh=bake(root,theme)
-    scene,camera=studio((6.1,-31.8,25.0),(0,0,-.26),1280,840,27.3,samples=10)
+    mesh=bake(root,theme,m)
+    scene,camera=studio((9.8,-32.1,22.0),(0,0,-.23),1280,880,27.1,samples=18)
     scene.view_settings.view_transform="Standard"
     scene.view_settings.look="None"
     scene.render.image_settings.file_format="WEBP"
@@ -494,20 +488,25 @@ def build(theme, review):
         export_all_vertex_colors=False)
     bpy.ops.wm.save_as_mainfile(filepath=str(SOURCES/f"arena_{theme}.blend"),compress=True)
     bpy.ops.render.render(write_still=True)
-    if review:
+    if review_directory:
         scene.render.resolution_x=820
         scene.render.resolution_y=820
-        for direction, place in (("reverse",(-7,26,24)),("top",(0,-.02,33)),("side",(-18,-20,8))):
+        for direction, place, scale in (("reverse",(-7,26,24),25.),("top",(0,-.02,33),25.7),
+                                        ("side",(-18,-20,13),25.1)):
             camera.location=place
-            camera.data.ortho_scale=22.2
+            camera.data.ortho_scale=scale
             look_at(camera,(0,0,-.10))
-            scene.render.filepath=f"/tmp/pd-atelier/{theme}-{direction}.webp"
+            scene.render.filepath=str(review_directory/f"{theme}-{direction}.webp")
             bpy.ops.render.render(write_still=True)
 
 
 if __name__=="__main__":
-    args=set(sys.argv[sys.argv.index("--")+1:]) if "--" in sys.argv else set()
-    requested=args.intersection(PALETTES)
+    cli=ArgumentParser(description=__doc__)
+    cli.add_argument("themes",nargs="*",metavar="THEME")
+    cli.add_argument("--review",type=Path,metavar="DIRECTORY")
+    args=cli.parse_args(sys.argv[sys.argv.index("--")+1:] if "--" in sys.argv else [])
+    if args.review:
+        args.review.mkdir(parents=True,exist_ok=True)
     for name in PALETTES:
-        if not requested or name in requested:
-            build(name,"--review" in args)
+        if not args.themes or name in args.themes:
+            build(name,args.review)

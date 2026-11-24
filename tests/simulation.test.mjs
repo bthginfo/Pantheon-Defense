@@ -25,6 +25,11 @@ test('exported Blender actors include the clips used by Bevy', () => {
     assert.equal(asset.meshes[0].primitives.length,1,actor.id);
     const attributes=asset.meshes[0].primitives[0].attributes;
     assert.ok(Number.isInteger(attributes.COLOR_0) && Number.isInteger(attributes.JOINTS_0),actor.id);
+    if (actor.kind==='hero' || actor.kind==='troop') {
+      assert.ok(Number.isInteger(attributes.TEXCOORD_0), `${actor.id}: material finish coordinates`);
+      assert.ok(Number.isInteger(asset.materials[0].pbrMetallicRoughness.metallicRoughnessTexture?.index),
+        `${actor.id}: packed cloth and metal finishes`);
+    }
   }
 });
 

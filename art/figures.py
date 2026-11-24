@@ -1,11 +1,12 @@
 """Sculpted faction figures. Colours, garments and insignia are set by character."""
-from math import cos, exp, pi, sin, sqrt, tau
+from math import cos, exp, pi, sin, tau
 from random import Random
 
 from mathutils import Vector
 
-from forge import empty, material, span, stone
-from geometry import bevel_block as block, mesh_object, shell, silhouette, torus_mesh, volume
+from forge import empty, material
+from geometry import bevel_block as block, mesh_object, shell, silhouette, span, stone, torus_mesh, volume
+from figure_detail import cape, harness, polished_sun_disc, scutum
 
 # Each entry selects a garment construction, headwear, textile colours, and personal crest.
 WARDROBE = {
@@ -83,13 +84,29 @@ def mat_set(item, colors):
     gold={"aegean":"c8a260","rome":"c39659","japan":"c9a971"}[faction]
     edge={"aegean":"eed79b","rome":"e3bc7d","japan":"e7ca8d"}[faction]
     hair=rng.choice(("382e2e","382e35","332f38","553933","443231"))
-    return {name:material(name,color,metallic) for name,color,metallic in [
+    materials={name:material(name,color,metallic) for name,color,metallic in [
         ("fabric",fabric,0),("accent",trim,0),("body",skin,0),("blush","9e5f50",0),
         ("hair",hair,0),("hair edge","544349",0),("hem",dark,0),("belt","695247",0),
         ("leather","825d48",0),("boots","4a3b34",0),("gold",gold,.22),("fillet",edge,.17),
-        ("steel","b5bab8",.35),("dark iron","656e70",.31),("antique white","e8dfc4",0),
+        ("steel","c2c6c4",.43),("dark iron","717b84",.32),("antique white","e8dfc4",0),
         ("sclera","eee4d0",0),("iris","463e33",0),("pupil","242627",0),("wood","715041",0),
     ]}
+    for key,value in (("fabric",.81),("accent",.77),("hair",.63),("body",.71),("belt",.69),
+                      ("boots",.68),("gold",.39),("fillet",.29),("steel",.34),("dark iron",.43)):
+        materials[key].node_tree.nodes.get("Principled BSDF").inputs["Roughness"].default_value=value
+    if item["id"]=="akari":
+        materials.update(silk=material("Pale folded sleeve silk","ead9c1"),
+            lacquer=material("Akari's russet lacquer","684149",.10),
+            stitching=material("Faded salmon stitching","c39384"))
+    elif item["id"]=="marcus":
+        materials["greave"]=material("Tanned leather gaiters","765346")
+        iron=material("Marcus’s worn forged iron","989490",.44)
+        iron.node_tree.nodes.get("Principled BSDF").inputs["Roughness"].default_value=.43
+        materials["steel"]=iron
+    elif item["id"]=="bronze_giant":
+        materials.update(body=material("Weathered bronze skin","a18456",.38),
+                         patina=material("Verdigris on the guardian's brow","5b887e",.13))
+    return materials
 
 
 def cut(name, parent, center, dims, mat, subdivisions=2, smooth=False):
@@ -178,81 +195,152 @@ def fabric_panel(name,parent,wtop,whem,height,shift,foot,m,center=(0,0,0),cascad
     obj.modifiers.new("Two-sided fabric edge","SOLIDIFY").thickness=.021
 
 
-def head_mesh(head,m,broad,masculine):
+def head_mesh(head,m,broad,beard,ident):
+    square=1.12 if beard else .88 if ident=="akari" else .94 if ident=="thekla" else .98
     profile=[
-        (.005,.077,.092,.014),(.036,.125,.119,.006),(.075,.167,.142,.003),
-        (.129,.190,.162,.002),(.183,.205,.174,.008),(.225,.203,.184,.014),
-        (.259,.200,.184,.019),(.297,.202,.187,.024),(.345,.193,.181,.030),
-        (.394,.164,.149,.041),(.435,.101,.107,.045),(.45,.039,.055,.045),
+        (.005,.079*square,.083,.005),(.036,.120*square,.110,.004),(.075,.158*square,.128,.005),
+        (.129,.183,.151,.004),(.183,.198,.167,.008),(.225,.197,.178,.014),
+        (.259,.196,.177,.018),(.297,.197,.179,.023),(.345,.187,.173,.029),
+        (.394,.155,.145,.036),(.435,.099,.104,.039),(.45,.040,.054,.040),
     ]
     rings=[]
     for z,rx,ry,cy in profile:
         row=[]
-        for i in range(32):
-            t=i*tau/32-pi/2
+        for i in range(36):
+            t=i*tau/36-pi/2
             x=broad*rx*cos(t)
             y=cy+ry*sin(t)
-            if sin(t)<-.69:
-                y-=exp(-(x/.043)**2)*exp(-((z-.187)/.055)**2)*.053
-                y+=exp(-((abs(x)-.081)/.041)**2)*exp(-((z-.237)/.034)**2)*.011
-                y-=exp(-((abs(x)-.135)/.054)**2)*exp(-((z-.158)/.047)**2)*.009
+            if sin(t)<-.64:
+                bridge=exp(-(x/.039)**2)*exp(-((z-.193)/.050)**2)
+                cheek=exp(-((abs(x)-.135)/.050)**2)*exp(-((z-.154)/.043)**2)
+                lips=exp(-(x/.05)**2)*exp(-((z-.104)/.018)**2)
+                socket=exp(-((abs(x)-.081)/.040)**2)*exp(-((z-.237)/.025)**2)
+                y-=bridge*(.055 if beard else .041)+cheek*.013+lips*.012
+                y+=socket*.016
             row.append((x,y,z))
         rings.append(row)
-    volume("Single sculpted face, nose, jaw and sockets",rings,m["body"],head,True)
+    volume("Sculpted jaw, cheekbones and nose",rings,m["body"],head,True)
+    portrait_roll=Random(ident+" expression")
+    arch=portrait_roll.uniform(.269,.282)
+    eye_open=.008 if beard else .013 if ident in ("thekla","akari") else .011
     for side in (-1,1):
         x=side*.078*broad
-        eye=cut("Dark eye socket",head,(x,-.153,.237),(.043,.016,.023),m["hair"],2,True)
-        eye.rotation_euler.y=-side*.1
-        cut("Warm off-white eyeball",head,(x,-.163,.236),(.031,.012,.0128),m["sclera"],2,True)
-        cut("Coloured iris",head,(x+.004,-.173,.236),(.012,.006,.013),m["iris"],2,True)
-        cut("Pupil",head,(x+.004,-.178,.236),(.0067,.0035,.0091),m["pupil"],2,True)
-        cut("Eye catchlight",head,(x+.001,-.181,.241),(.0031,.0018,.0029),m["sclera"],1)
-        curve("Upper lid at the brow line",head,[(x-side*.033,-.161,.236),(x,-.172,.248),
-              (x+side*.034,-.150,.240)],[.005,.007,.0055],m["hair"],6)
-        curve("Raised brow",head,[(x-side*.039,-.158,.269),(x,-.166,.280),(x+side*.043,-.139,.267)],
-              [.010,.014,.006],m["hair"],6)
-        cut("Outer ear",head,(side*.195*broad,.013,.169),(.049,.046,.073),m["body"],2,True)
-        cut("Recess of ear",head,(side*.219*broad,-.013,.165),(.023,.025,.040),m["blush"],2,True)
-    curve("Small carved half smile",head,[(-.052,-.134,.098),(-.022,-.147,.093),(.011,-.150,.094),(.050,-.136,.103)],
-          [.004,.007,.007,.005],m["blush"])
-    if masculine:
-        for i in range(7):
-            x=(i-3)*.035*broad
-            y=-.143+(abs(x)*.23)
-            b=cut("Faceted boxed beard",head,(x,y,.069+abs(x)*.21),(.055,.042,.078),m["hair"],1,True)
-            b.rotation_euler.y=-x*2
+        y=-.158
+        corners=[(x-side*.032,y+.004,.233),(x-side*.013,y-.010,.239+eye_open),
+                 (x+side*.012,y-.011,.240+eye_open*.80),(x+side*.032,y+.009,.237),
+                 (x+side*.013,y-.005,.231-eye_open*.47),(x-side*.012,y-.008,.232-eye_open*.57)]
+        obj=mesh_object("Inset almond-shaped eye",corners,[(0,1,2,3,4,5)],m["sclera"],head)
+        obj.modifiers.new("Thickness of inset eye","SOLIDIFY").thickness=.010
+        cut("Inset painted iris",head,(x+.004,y-.012,.237),(.0106,.0037,.0105),m["iris"],2,True)
+        cut("A small dark pupil",head,(x+.004,y-.016,.237),(.0064,.0023,.0076),m["pupil"],2,True)
+        cut("Subtle light in the iris",head,(x+.001,y-.018,.241),(.0024,.0014,.0023),m["sclera"],1)
+        curve("Top edge of the almond eye",head,corners[:4],[.004,.007,.007,.003],m["hair"],6)
+        curve("Modelled brow",head,[(x-side*.036,-.155,.266),(x,-.167,arch),
+              (x+side*.039,-.140,.265+side*.005)],[.009,.011,.005],m["hair"],6)
+        cut("Tapered outer ear",head,(side*.189*broad,.024,.171),(.040,.035,.063),m["body"],2,True)
+        cut("Ear cartilage",head,(side*.203*broad,.006,.164),(.020,.019,.036),m["blush"],2,True)
+    smile=.009 if ident in ("thekla","akari") else .002
+    curve("Carved half smile",head,[(-.047,-.135,.107+smile),(-.019,-.148,.102),
+          (.020,-.146,.103),(.047,-.132,.109+smile)],[.004,.006,.005,.003],m["blush"],6)
+    if beard:
+        shell("Angular beard following the jawline",[
+            (-.022,.073,.087,0.,-.035),(.005,.132,.102,0.,-.034),
+            (.057,.156,.104,0.,-.018),(.106,.142,.089,0.,.003),(.12,.112,.067,0.,.017),
+        ],m["hair"],head,14,True)
+        for sign in (-1,1):
+            curve("Moustache meeting the sideburn",head,[(sign*.016,-.141,.134),
+                  (sign*.044,-.147,.127),(sign*.092,-.125,.102)],
+                  [.010,.015,.010],m["hair"],7)
 
 
-def hair_cap(head,m,style,broad):
-    shell("Sculpted central hair mass",[
-        (.247,.193*broad,.17,0,.034),(.304,.209*broad,.179,0,.033),(.389,.194*broad,.166,0,.039),
-        (.449,.146*broad,.115,0,.036),(.481,.053,.050,.007,.025),
-    ],m["hair"],head,16,True)
-    for i in range(5):
-        x=(-.143+.068*i)*broad
-        top=.404+.033*sin(.6*i)
-        lock=silhouette("Sculpted sweep of the fringe",[(x-.031,top-.016),(x+.028,top+.022),
-            (x+.077,top-.024),(x+.017,top-.087),(x-.038,top-.110)],.045,
-            m["hair"] if i%2 else m["hair edge"],head)
-        lock.location.y=-.146+abs(x)*.18
-        lock.rotation_euler.z=-x*.61
-    if style in ("braid","moon","ribbon","corinthian"):
-        for side in (-1,1):
-            curve("Tied sculpted braid",head,[(side*.143,.046,.357),(side*.179,.117,.278),
-                  (side*.196,.175,.229),(side*.151,.240,.193)], [.056,.051,.043,.031],m["hair"],8)
-        cut("Knot of the bun",head,(0,.207,.318),(.130,.098,.125),m["hair"],2)
+def hair_cap(head,m,style,broad,theme,ident):
+    shell("Carved hair volume",[
+        (.247,.188*broad,.165,0,.040),(.304,.210*broad,.180,0,.032),(.389,.195*broad,.164,0,.033),
+        (.449,.153*broad,.125,0,.035),(.481,.058,.059,.005,.027),
+    ],m["hair"],head,20,True)
+    face_shift=-1 if theme=="japan" else 1
+    if style not in ("galea","bronze","crest","hat","kabuto"):
         for i in range(5):
-            a=i*tau/5
-            cut("Fold of the bun",head,(cos(a)*.075,.242,.315+sin(a)*.078),
-              (.061,.048,.065),m["hair edge"] if i%2 else m["hair"],1,True)
-    if style in ("ribbon","braid","veil"):
+            u=(-.155+.069*i)*broad
+            base=.302+.014*sin(i*1.70)
+            end=.421+.019*cos(i*.8)
+            pts=[(u-.031,-.132+abs(u)*.17,base),
+                 (u+.019,-.166+abs(u)*.21,base+.030),
+                 (u+face_shift*.047,-.141,end-.012),
+                 (u+face_shift*.01,-.082,end+.024),
+                 (u-face_shift*.049,-.108,end-.017)]
+            comb=mesh_object("Swept hair lock",pts,[(0,1,2,3,4)],m["hair edge"] if i%3==1 else m["hair"],head)
+            comb.modifiers.new("Shaped outer hair strand","SOLIDIFY").thickness=.020
+    if style in ("braid","moon","ribbon","corinthian"):
+        for sign in (-1,1):
+            curve("Shaped braid from temple to the back",head,[(sign*.141,.037,.371),
+                 (sign*.173,.101,.284),(sign*.159,.191,.251),(sign*.111,.237,.212)],
+                 [.043,.049,.040,.029],m["hair"],8)
+        cut("Back hair gathered and tied",head,((.062 if ident=="akari" else 0),.193,.333),(.118,.094,.110),m["hair"],2)
+        for i in range(6):
+            a=i*tau/6
+            x=cos(a)*.071
+            cut("Carved loops of the tied hair",head,(x,.235,.332+sin(a)*.073),
+                (.052,.038,.051),m["hair edge"] if i%3==0 else m["hair"],1,True)
+    if ident=="thekla":
+        for sign in (-1,1):
+            for i in range(3):
+                x=sign*(.150+.012*i)
+                cut("Short sculpted curls against the temple",head,(x,.047+.011*i,.281-.044*i),
+                    (.032,.038,.033),m["hair"],2,True)
+    if style in ("ribbon","braid","veil") or ident=="akari":
         for side in (-1,1):
-            ribbon=empty("Knotted ribbon",(side*.055,.19,.275),head)
+            ribbon=empty("Knotted ribbon",(side*.055,.191,.283),head)
             ribbon.rotation_euler.y=.18*side
-            fabric_panel("Dyed hanging hair tie",ribbon,.052,.08,.29,.055*side,.118,m)
+            fabric_panel("Dyed silk from the back of the coiffure",ribbon,.049,.073,.31,.051*side,.091,m)
 
 
-def headpiece(head,m,style,theme,broad,medal,hero):
+def hood(head,m,style,broad):
+    angles=[-.19*pi+1.38*pi*i/14 for i in range(15)]
+    points=[(rx*broad*cos(a),y+.026*abs(cos(a)),z+rz*sin(a))
+            for y,z,rx,rz in ((-.139,.268,.230,.250),(-.084,.270,.258,.270),
+                              (.068,.250,.269,.277),(.191,.234,.235,.260),
+                              (.223,.222,.144,.164)) for a in angles]
+    n=len(angles)
+    faces=[(a,a+1,a+n+1,a+n) for row in range(4) for i in range(n-1) for a in (row*n+i,)]
+    faces.append(tuple(range(4*n,5*n)))
+    paint=m["antique white"] if style=="veil" else m["accent"]
+    panel=mesh_object("Tailored canopy and crown folds of the head cloth",points,faces,paint,head)
+    panel.modifiers.new("Cloth fold thickness","SOLIDIFY").thickness=.022
+    curve("Stitched front seam of the head cloth",head,points[:n],[.013]*n,
+          m["accent"] if style=="veil" else m["belt"],6)
+
+
+def guardian_mask(head,m,ident):
+    if ident=="bronze_giant":
+        visor=silhouette("Weathered bronze faceguard with cheek cuts",
+            [(-.222,.361),(-.098,.352),(0,.398),(.104,.352),(.224,.37),(.196,.153),
+             (.091,.085),(.052,.166),(0,.129),(-.060,.169),(-.085,.090),(-.190,.167)],
+            .051,m["gold"],head)
+        visor.location.y=-.175
+        for side in (-1,1):
+            span("Patina recessed around the mask's eye",(side*.036,-.204,.241),(side*.155,-.207,.256),
+                 .018,m["patina"],head,6,.013)
+        pin("Bronze brow rivet",(0,-.208,.326),.035,m["fillet"],head)
+    if ident=="komainu":
+        mask=silhouette("Lion guardian mask with broad jaw",
+            [(-.213,.305),(-.238,.402),(-.142,.463),(0,.402),(.144,.464),(.239,.398),
+             (.213,.304),(.228,.155),(.106,.089),(0,.138),(-.108,.088),(-.228,.155)],
+            .051,m["fabric"],head)
+        mask.location.y=-.174
+        for side in (-1,1):
+            for i in range(4):
+                theta=pi*(.27+i*.19)
+                x=side*(.157+.069*sin(theta))
+                cut("Curl in the carved lion mane",head,(x,-.171,.244+.166*cos(theta)),
+                    (.058,.054,.062),m["gold"],1,True)
+            pin("Carved lacquer lion eye",(side*.088,-.208,.279),.037,m["hem"],head)
+            cut("Lion's sculpted muzzle",head,(side*.053,-.220,.181),
+                (.077,.047,.048),m["gold"],2,True)
+        pin("Dark centre of the lion nose",(0,-.268,.222),.033,m["hair"],head)
+
+
+def headpiece(head,m,style,theme,broad,medal,hero,ident):
     if style in ("bronze","corinthian","galea","crest","kabuto"):
         helmet=m["dark iron"] if style=="galea" else m["gold"] if theme!="japan" else m["hem"]
         shell("Hammered open-faced helmet",[
@@ -278,6 +366,10 @@ def headpiece(head,m,style,theme,broad,medal,hero):
                 cheek.location.y=-.083
                 pin("Faceguard boss",(side*.174,-.112,.230),.022,m["fillet"],head)
         if style=="corinthian":
+            mount=silhouette("Cast saddle under the sweeping helmet spine",
+                [(-.143,.436),(.125,.443),(.106,.490),(0,.551),(-.074,.520)],.072,m["gold"],head)
+            mount.rotation_euler.z=pi/2
+            mount.location.y=.052
             for side in (-1,1):
                 path=[(side*.051,.045+.29*cos(a),.414+.152*sin(a)) for a in [pi*(.14+.09*i) for i in range(9)]]
                 curve("Raised contour of the cast helmet crest",head,path,[.008,.012,.021,.023,.023,.023,.019,.012,.007],m["fillet"],7)
@@ -314,13 +406,20 @@ def headpiece(head,m,style,theme,broad,medal,hero):
         else:
             span("Tied brow binding",(-.171,-.093,.326),(.173,-.092,.328),.026,m["fabric"],head,9)
     elif style in ("hood","veil"):
+        hood(head,m,style,broad)
         for side in (-1,1):
             fabric_panel("Folded covering beside face",head,.114,.105,.43,side*.037,.12,m,
                          center=(side*.134,-.052,.414))
     elif style in ("moon","solar","laurel","ribbon"):
         if style=="moon":
-            pts=[(.148*cos(a),-.148,.486+.115*sin(a)) for a in [pi*(.92+i*.145) for i in range(9)]]
-            curve("Open crescent crest",head,pts,[.024]+[.027]*7+[.010],m["fillet"],8)
+            angles=[pi*(.89+i*.13) for i in range(11)]
+            outline=[(.148*cos(a),.539+.134*sin(a)) for a in angles]
+            outline.extend((.129*cos(a),.552+.113*sin(a)) for a in reversed(angles))
+            crescent=silhouette("Cut and polished crescent crest",outline,.033,m["fillet"],head)
+            crescent.location.y=-.143
+            if ident=="akari":
+                span("Brass stand between crescent and hair comb",(0,-.143,.413),
+                     (0,-.145,.456),.027,m["gold"],head,7,.021)
         else:
             for side in (-1,1):
                 for i in range(4):
@@ -334,6 +433,7 @@ def headpiece(head,m,style,theme,broad,medal,hero):
             face=silhouette("Carved kitsune ear",[(.109,.351),(.259,.39),(.210,.597)],.092,m["fabric"],head)
             face.scale.x=side
             face.location.y=.039
+    guardian_mask(head,m,ident)
 
 
 def torso(body,m,armor,wide,crest,hero,ident):
@@ -360,11 +460,18 @@ def torso(body,m,armor,wide,crest,hero,ident):
             if armor=="segments":
                 shell("Overlapping curved iron segment",[(h-.042,rad,.189,0,.011),(h,rad+.013,.204,0,.008),
                     (h+.035,rad-.004,.194,0,.011)], m["dark iron"] if row%2 else m["steel"],body,14)
+                if ident=="marcus":
+                    for side in (-1,1):
+                        span("Bronze edge of the lorica band",(side*.038,-.205,h-.014),
+                             (side*.197,-.158,h-.012),.010,m["gold"],body,6,.009)
             else:
                 for index in range(8):
                     angle=(index-3.5)*.41
-                    plate=block("Hand-laced lamellar panel",(sin(angle)*rad,-cos(angle)*.186,h),(.083*wide,.049,.086),
-                          m["hem"] if armor=="lamellar" and row%2 else m["dark iron"] if armor=="lamellar" else m["gold"],body,.014,angle)
+                    plate_color=m["gold"] if armor=="scale" else m["hem"] if row%2 else m["dark iron"]
+                    if ident=="akari" and row>=3:
+                        plate_color=m["lacquer"]
+                    block("Hand-laced lamellar panel",(sin(angle)*rad,-cos(angle)*.186,h),
+                          (.083*wide,.049,.086),plate_color,body,.014,angle)
                     pin("Lamellar silk knot",(sin(angle)*rad,-cos(angle)*.208,h+.015),.013,m["accent"],body)
     else:
         for sign in (-1,1):
@@ -378,10 +485,21 @@ def torso(body,m,armor,wide,crest,hero,ident):
     emblem(crest,body,0,-.215,-.064,.23,m)
     if ident=="akari":
         for side in (-1,1):
-            shell("Pleated indigo hakama with split stride",[
+            hakama=shell("Pleated indigo hakama with split stride",[
                 (-.632,.151,.201,side*.147,.018),(-.597,.173,.213,side*.158,.028),
                 (-.392,.159,.194,side*.144,.022),(-.121,.111,.162,side*.087,0)
             ],m["hem"],body,9,False,pi/9)
+            hakama.data.materials.append(m["accent"])
+            for row in range(3):
+                for column in (0,3,6):
+                    hakama.data.polygons[1+row*9+column].material_index=1
+            for rear in (-1,1):
+                for i in (-1,0,1):
+                    cx=side*.158+i*.091
+                    for radius in (.028,.044):
+                        arc=[(cx+radius*cos(a),rear*(.192-.016*abs(i))+.018,
+                              -.590+radius*sin(a)) for a in [pi*k/5 for k in range(6)]]
+                        curve("Woven seigaiha on the split hem",body,arc,[.0065]*6,m["stitching"],5)
             for row in range(2):
                 for i in range(4):
                     x=side*(.066+i*.061)
@@ -422,16 +540,20 @@ def torso(body,m,armor,wide,crest,hero,ident):
     return plated
 
 
-def armor_arm(arm,side,m,plated,japan,hero):
+def armor_arm(arm,side,m,plated,japan,hero,ident):
     limb("Upper arm with sculpted seam",arm,(0,-.009,-.018),(side*.054,-.025,-.249),
         [(0,.097,.093),(.20,.119,.110),(.57,.095,.087),(.87,.078,.077),(1,.072,.070)],
         m["fabric"] if japan or not plated else m["body"])
+    if ident=="akari":
+        limb("Pleated ivory sleeve under the articulated armour",arm,
+             (side*.012,-.006,-.031),(side*.052,-.038,-.253),
+             [(0,.102,.099),(.29,.125,.112),(.66,.135,.126),(.85,.117,.111),(1,.106,.093)],m["silk"])
     if plated or hero:
-        for row in range(3 if japan else 2):
+        for row in range(3 if japan and ident!="akari" else 2):
             p=(side*(.045+.014*row),.005,-.008-.071*row)
             if japan:
                 pad=block("Lacquered shoulder lamella",(p[0]+side*.029,-.004,p[2]),(.223,.266-.026*row,.061),
-                          m["dark iron"],arm,.026)
+                          m["lacquer"] if ident=="akari" and row==0 else m["dark iron"],arm,.026)
                 pad.rotation_euler.y=side*.36
                 span("Dyed silk shoulder lacing",(p[0]-.068,-.111+row*.008,p[2]+.012),
                      (p[0]+.079,-.112+row*.008,p[2]-.015),.015,m["accent"],arm,7)
@@ -453,9 +575,11 @@ def armor_arm(arm,side,m,plated,japan,hero):
     return hand
 
 
-def boots(root,wide,m,armor,theme):
+def boots(root,wide,m,armor,theme,ident):
     for side,label in ((-1,"LeftLeg"),(1,"RightLeg")):
-        leg=empty(label,(side*.158*wide,.02,.795),root)
+        stride=.036 if ident=="marcus" else .048 if ident=="akari" else .027
+        leg=empty(label,(side*.161*wide,.02+side*stride,.795),root)
+        leg.rotation_euler.z=-side*.096
         booted=theme=="japan" or armor in ("leather","tunic","travel")
         limb("Tapered trousers" if booted else "Tailored leg",leg,(0,0,.024),(side*.027,.014,-.463),
             [(0,.115,.106),(.23,.117,.11),(.61,.091,.087),(.88,.081,.077),(1,.079,.074)],
@@ -463,29 +587,23 @@ def boots(root,wide,m,armor,theme):
         guard=side*.031
         limb("Strapped greave",leg,(guard,-.005,-.373),(guard*1.4,-.016,-.691),
             [(0,.082,.076),(.26,.098,.083),(.74,.079,.072),(1,.064,.066)],
-            m["dark iron"] if theme=="japan" else m["gold"])
-        foot=cut("Deliberately shaped sandal or boot",leg,(guard*1.4,-.091,-.720),(.103,.174,.083),m["boots"],2,True)
-        sole=block("Stitched sole",(guard*1.4,-.084,-.783),(.202,.292,.047),m["belt"],leg,.029)
+            m.get("greave",m["dark iron"] if theme=="japan" else m["gold"]))
+        cut("Leather boot or skin fitted to a sandal",leg,(guard*1.4,-.091,-.726),
+            (.098,.168,.068),m["boots"] if booted else m["body"],2,True)
+        block("Stitched sole",(guard*1.4,-.084,-.783),(.202,.292,.047),m["belt"],leg,.029)
         for step in range(3):
-            belt=block("Criss-cross sandal straps",(guard*1.4,-.145+.053*step,-.655-.011*step),
+            block("Criss-cross sandal straps",(guard*1.4,-.145+.053*step,-.655-.011*step),
                   (.181,.035,.026),m["leather"],leg,.012,side*.07)
         pin("Bronze boot clasp",(guard*1.4,-.088,-.61),.028,m["fillet"],leg)
 
 
-def shield(hand,m,theme,crest,size=1.0):
+def shield(hand,m,theme,crest,size=1.0,hero=False):
     parent=empty("Shield fixed to forearm",(0,-.102,-.101),hand)
     parent.scale=(size,)*3
     if theme=="rome":
-        for thickness,col in ((.093,m["belt"]),(.063,m["accent"])):
-            shell("Curved double scutum shell",[
-                (-.465,.207,.061,0,-.004),(-.418,.268,.082,0,-.008),(.381,.270,.091,0,-.014),(.431,.220,.071,0,-.013)
-            ],col,parent,12,True)
-        for side in (-1,1):
-            curve("Rolled scutum border",parent,[(side*.216,-.061,-.435),(side*.257,-.071,-.371),
-                  (side*.258,-.073,.363),(side*.212,-.069,.413)],[.031,.022,.024,.023],m["fillet"],9)
-        for height in (-.429,.414):
-            span("Hammered short edge",( -.205,-.066,height),(.205,-.067,height),.024,m["gold"],parent,8)
-        emblem(crest,parent,0,-.113,.03,.91,m)
+        scutum(parent,m,hero,crest)
+        if crest!="wing":
+            emblem(crest,parent,0,-.129,.03,.91,m)
     else:
         model=shell("Convex round shield with timber backing",[
             (-.070,.332,.332,0,0),(-.048,.365,.365,0,0),(.012,.356,.356,0,0),
@@ -497,13 +615,16 @@ def shield(hand,m,theme,crest,size=1.0):
         for i in range(12):
             a=tau*i/12
             pin("Rivets around embossed shield",(cos(a)*.314,-.050,sin(a)*.314),.021,m["fillet"],parent)
-        emblem(crest,parent,0,-.078,0,1.00,m)
+        if crest=="sun":
+            polished_sun_disc(parent,m,hero)
+        else:
+            emblem(crest,parent,0,-.078,0,1.0,m)
     cut("Metal shield boss",parent,(0,-.132,0),(.064,.049,.070),m["fillet"],2)
     for sign in (-1,1):
         span("Rear leather handle",(sign*.16,.051,-.18),(sign*.08,.093,.13),.028,m["belt"],parent,7)
 
 
-def weapon(hand,hips,kind,m,crest,hero):
+def weapon(hand,hips,kind,m,crest,hero,ident):
     h=1.14 if hero else .92
     if kind in ("spear","glaive","javelin","staff","banner","hammer","sword"):
         top=h if kind!="sword" else .55
@@ -519,31 +640,71 @@ def weapon(hand,hips,kind,m,crest,hero):
             start=top-.098 if kind!="sword" else .106
             peak=start+(.48 if kind=="glaive" else .60 if kind=="sword" else .365 if hero else .26)
             arc=.160 if kind=="glaive" else .018
-            blade=silhouette("Planar honed leaf blade",[(0,start),(-.074,start+.091),(arc-.041,peak-.102),
-                   (arc,peak),(arc+.067,peak-.096),(.083,start+.11)],.047,m["steel"],hand)
-            curve("Raised bronze fuller",hand,[(0,-.027,start+.044),(.025,-.034,start+.183),
-                 (arc,-.023,peak-.033)],[.014,.012,.003],m["fillet"],6)
-            block("Machined fitted weapon guard",(0,0,start+.006),(.21,.089,.056),m["gold"],hand,.015)
+            if kind=="glaive":
+                silhouette("Drawn curved naginata with honed edge",[(0,start),(-.049,start+.127),
+                    (-.012,start+.285),(.067,peak-.065),(arc,peak),(.137,peak-.111),
+                    (.084,start+.210),(.058,start+.071)],.039,m["steel"],hand)
+                curve("Visible darker spine of the curved blade",hand,[(.016,-.023,start+.025),
+                     (.022,-.031,start+.168),(.066,-.028,start+.306),(.125,-.013,peak-.048)],
+                     [.012,.016,.012,.002],m["dark iron"],6)
+                shell("Rounded brass naginata guard",[(start-.004,.099,.052,0,0),
+                      (start+.015,.115,.062,0,0),(start+.030,.092,.053,0,0)],m["gold"],hand,12)
+            else:
+                silhouette("Planar honed leaf blade",[(0,start),(-.074,start+.091),(arc-.041,peak-.102),
+                           (arc,peak),(arc+.067,peak-.096),(.083,start+.11)],.047,m["steel"],hand)
+                curve("Raised bronze fuller",hand,[(0,-.027,start+.044),(.025,-.034,start+.183),
+                     (arc,-.023,peak-.033)],[.014,.012,.003],m["fillet"],6)
+                block("Fitted weapon guard",(0,0,start+.006),(.21,.089,.056),m["gold"],hand,.015)
         elif kind=="hammer":
             hammer=block("Weighted bevelled bronze hammer head",(0,0,top),(.49,.29,.31),m["dark iron"],hand,.079)
             for side in (-1,1):
                 block("Tapered brass hammer cheek",(side*.208,-.01,top),(.146,.295,.273),m["gold"],hand,.05)
             emblem(crest,hand,0,-.153,top,.46,m)
         elif kind=="staff":
-            torus_mesh("Prismatic staff cradle",(0,-.008,top+.12),.139,.034,m["fillet"],hand,16,6,True)
-            cut("Polished glass counterweight",hand,(0,-.007,top+.125),(.096,.069,.126),m["accent"],1)
-            for side in (-1,1):
-                span("Staff prong",(side*.069,0,top-.069),(side*.129,0,top+.125),.028,m["gold"],hand,7,.016)
+            focus=empty("Crafted channel at the staff tip",(0,0,top+.121),hand)
+            focus.rotation_euler.z=.12
+            if crest in ("sun","moon","star"):
+                size=.141 if hero else .112
+                torus_mesh("Circular brass setting for a polished stone",(0,-.008,0),size,.026,m["fillet"],focus,16,6,True)
+                rays=11 if crest=="sun" else 5 if crest=="star" else 3
+                for i in range(rays):
+                    a=i*tau/rays
+                    reach=size*1.7
+                    span("Outward tip of the carved setting",(size*cos(a),0,size*sin(a)),
+                         (reach*cos(a),0,reach*sin(a)),.025,m["gold"],focus,5,.003)
+                cut("Polished enamel at the centre of the setting",focus,(0,-.022,0),
+                    (size*.69,.067,size*.73),m["accent"],2,True)
+            else:
+                fill=m["accent"]
+                cut("Glazed stone cut to a flame or leaf",focus,(0,-.008,.012),(.083,.069,.135),fill,1)
+                for side in (-1,1):
+                    curve("Forged branches curving over the crystal",focus,
+                        [(0,0,-.171),(side*.118,0,-.065),(side*.14,0,.087),(side*.080,0,.149)],
+                        [.039,.031,.021,.006],m["gold"],7)
         elif kind=="banner":
             span("Silk standard crosspiece",(-.243,0,top-.059),(.243,0,top-.059),.036,m["gold"],hand,8)
             pennant=empty("Banner sail",(0,0,top-.064),hand)
             fabric_panel("Split company standard",pennant,.226,.195,.55,.09,.024,m,center=(0,-.011,0),cascade=True)
             emblem(crest,pennant,0,-.058,-.22,.52,m)
-            cut("Hammered banner finial",hand,(0,0,top+.073),(.079,.050,.077),m["fillet"],1)
+            if ident=="aquilifer":
+                bird=silhouette("Roman eagle finial above the standard",
+                    [(-.317,.158),(-.207,.192),(-.087,.120),(-.039,.173),(-.036,.237),
+                     (.075,.256),(.111,.217),(.045,.189),(.068,.125),(.202,.196),(.318,.159),
+                     (.278,.060),(.166,.017),(.074,.030),(0,-.027),(-.081,.030),(-.192,.021),(-.283,.069)],
+                    .047,m["fillet"],hand)
+                bird.location.z=top+.054
+            else:
+                cut("Hammered banner finial",hand,(0,0,top+.073),(.079,.050,.077),m["fillet"],1)
     elif kind=="bow":
-        points=[(0,-.157+(sin(pi*i/8)*.26),-.43+i*.123) for i in range(9)]
-        curve("Sculpted recurved laminated bow",hand,points,[.023,.030,.035,.042,.045,.043,.035,.029,.022],m["wood"],9)
-        span("Bowstring",points[0],points[-1],.010,m["antique white"],hand,5,.010)
+        bow=empty("Laminate bow turned towards the draw hand",(0,0,0),hand)
+        bow.rotation_euler.z=1.37
+        length=1.27 if ident=="yumi" else 1.01
+        points=[(0,-.367+sin(pi*i/8)*.367,-.435+i*length/8) for i in range(9)]
+        curve("Sculpted recurved laminated bow",bow,points,[.023,.030,.035,.042,.045,.043,.035,.029,.022],m["wood"],9)
+        span("Bowstring",points[0],points[-1],.010,m["antique white"],bow,5,.010)
+        for i in (2,6):
+            a,b=Vector(points[i]),Vector(points[i+1])
+            span("Dyed fiber marking on the upper and lower limb",a.lerp(b,.12),a.lerp(b,.61),.045,m["accent"],bow,7)
         quiver=empty("Cross-back quiver",(.152,.196,.035),hips)
         quiver.rotation_euler.y=-.52
         shell("Quiver leather basket",[(0,.115,.099,0,0),(.47,.112,.107,0,0),(.55,.123,.108,0,0)],m["belt"],quiver,9)
@@ -579,21 +740,28 @@ def humanoid(item):
     info=item["model"]
     shape,tool=info["shape"],info["weapon"]
     m=mat_set(item,colors)
-    wide={"titan":1.27,"bulwark":1.18,"regent":1.04,"smith":1.15,"runner":.90,"seer":.92,"spirit":.95}.get(shape,1)
+    rng=Random(ident+" silhouette")
+    wide={"titan":1.31,"bulwark":1.22,"regent":1.06,"smith":1.19,"runner":.857,
+          "seer":.88,"spirit":.92,"banner":1.00}.get(shape,1.)
+    wide*=rng.uniform(.972,1.04)
     if ident=="marcus":
-        wide *= 1.156
+        wide *= 1.186
     if ident=="akari":
-        wide *= .943
+        wide *= .931
+    if ident=="thekla":
+        wide *= .961
     root=empty("Figure")
     root.scale=(.99 if hero else .88,)*3
     body=empty("Body",(0,.009,.83),root)
     shoulder=.274*wide
-    head=empty("Head",(0,-.016,.468),body)
-    mantle=empty("Mantle",(0,.135,.38),body)
+    head=empty("Head",(0,-.018,.457),body)
+    head.scale=((.875 if hero else .919)+rng.uniform(-.017,.015),)*3
+    shell("Soft neck above the collar",[(.406,.074,.071,0,.001),(.469,.073,.070,0,-.008),
+          (.509,.069,.065,0,-.008)],m["body"],body,10,True)
+    mantle=empty("Mantle",(0,.149,.391),body)
     plated=torso(body,m,armor,wide,crest,hero,ident)
     if hero or armor in ("robe","travel","hakama"):
-        fabric_panel("Hand-shaped trailing mantle",mantle,.241*wide,.293*wide,
-                     .80 if hero else .61,.10 if theme!="japan" else -.09,.29,m,cascade=True)
+        cape(item,mantle,.297*wide,m)
         for side in (-1,1):
             pin("Cloak clasp",(side*.17,-.135,.367),.038,m["gold"],body)
     if ident in ("thekla","marcus"):
@@ -608,24 +776,26 @@ def humanoid(item):
         curve("Contrasting border of the mantle",body,[points[i] for i in (6,7,8,4)],
               [.013,.019,.015,.010],m["fillet"],7)
         pin("Hammered fibula by the mantle fold",(s*.149,-.227,.316),.056,m["fillet"],body)
-    boots(root,wide,m,armor,theme)
-    masculine=ident in ("marcus","nikandros","daedalon","vindex","severus","keraunos","centurion","yamabushi","riku","promachos")
-    head_mesh(head,m,1.09 if masculine else .96,masculine)
-    hair_cap(head,m,style,1.09 if masculine else .96)
-    headpiece(head,m,style,theme,1.07 if masculine else 1,crest,hero)
+    boots(root,wide,m,armor,theme,ident)
+    beard=ident in ("marcus","nikandros","daedalon","vindex","severus","keraunos","centurion","yamabushi","riku","promachos")
+    face=(1.069 if beard else .973)+rng.uniform(-.042,.036)
+    head_mesh(head,m,face,beard,ident)
+    hair_cap(head,m,style,face,theme,ident)
+    headpiece(head,m,style,theme,face,crest,hero,ident)
     hands=[]
     for side,label in ((-1,"LeftArm"),(1,"RightArm")):
         arm=empty(label,(side*shoulder,-.005,.310),body)
         arm.rotation_euler.y=-.08*side
-        hands.append(armor_arm(arm,side,m,plated,theme=="japan",hero))
-    weapon(hands[1],body,tool,m,crest,hero)
+        hands.append(armor_arm(arm,side,m,plated,theme=="japan",hero,ident))
+    weapon(hands[1],body,tool,m,crest,hero,ident)
     if tool in ("spear","sword","javelin") and (plated or hero) and theme!="japan":
-        shield(hands[0],m,theme,crest,1.05 if hero else .86)
+        shield(hands[0],m,theme,crest,1.13 if hero else .89,hero)
     elif hero or armor in ("travel","tunic","robe"):
         pouch=empty("Fastened personal kit",(-.237,.041,-.145),body)
         cut("Lacquered small kit",pouch,(0,0,0),(.091,.096,.143),m["leather"],2)
         for dz in (-.047,.04):
             block("Textile keeper straps",(0,-.094,dz),(.125,.032,.027),m["gold"],pouch,.008)
+    harness(item,body,m,wide)
     if style=="fox":
         for side in (-1,1):
             points=[(side*.053,.177,-.24),(side*.177,.295,-.12),(side*.30,.387,.077),(side*.32,.434,.235)]

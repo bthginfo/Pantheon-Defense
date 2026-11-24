@@ -2,6 +2,7 @@
 import math
 import random
 import sys
+from argparse import ArgumentParser
 from collections import defaultdict
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from geometry import color_material, studio
 TAU = math.tau
 
 
-def bake_skin(root, data):
+def bake_skin(root, data, textured_material=False):
     bpy.context.view_layer.update()
     refs=[root]+[obj for obj in root.children_recursive if obj.type=="EMPTY"]
     shape_collection=bpy.data.collections.new("Editable components")
@@ -26,6 +27,7 @@ def bake_skin(root, data):
     positions=[]
     faces=[]
     pigment=[]
+    finishes=[]
     normals=[]
     smoothing=[]
     weights=defaultdict(list)
@@ -40,7 +42,11 @@ def bake_skin(root, data):
         matrix=evaluated.matrix_world.to_3x3().inverted().transposed()
         for face in surface.polygons:
             faces.append(tuple(offset+index for index in face.vertices))
-            pigment.append(tuple(surface.materials[face.material_index].diffuse_color))
+            finish=surface.materials[face.material_index]
+            pigment.append(tuple(finish.diffuse_color))
+            if textured_material:
+                shader=finish.node_tree.nodes.get("Principled BSDF")
+                finishes.append((shader.inputs["Roughness"].default_value,shader.inputs["Metallic"].default_value))
             normals.append((matrix @ face.normal).normalized())
             smoothing.append(face.use_smooth)
         evaluated.to_mesh_clear()
@@ -82,6 +88,8 @@ def bake_skin(root, data):
             tint=light[i]/count[i]
             attribute.data[loop].color=(color[0]*tint,color[1]*tint,color[2]*tint,1.)
     mat=color_material("Painted metal edges, textile and clay")
+    if textured_material:
+        material_atlas(mesh,mat,finishes)
     mesh.materials.append(mat)
     skin=bpy.data.objects.new(data["id"],mesh)
     bpy.context.collection.objects.link(skin)
@@ -100,11 +108,58 @@ def bake_skin(root, data):
     shape_collection.hide_viewport=True
     return arm,skin
 
+def material_atlas(mesh, mat, finishes):
+    """One small packed map retains cloth, leather and metal in a single mesh primitive."""
+    side=8
+    image=bpy.data.images.new("Packed cloth and metal finishes",width=side,height=side,alpha=False)
+    image.colorspace_settings.name="Non-Color"
+    pixels=[channel for row in range(side) for column in range(side)
+            for channel in (1.0,column/(side-1),row/(side-1),1.0)]
+    image.pixels.foreach_set(pixels)
+    image.pack()
+    layer=mesh.uv_layers.new(name="Material finish")
+    for face,(rough,metal) in zip(mesh.polygons,finishes):
+        uv=((round(rough*(side-1))+.5)/side,(round(metal*(side-1))+.5)/side)
+        for loop in face.loop_indices:
+            layer.data[loop].uv=uv
+    nodes=mat.node_tree.nodes
+    links=mat.node_tree.links
+    atlas=nodes.new("ShaderNodeTexImage")
+    atlas.label="Packed ORM channels"
+    atlas.image=image
+    atlas.interpolation="Closest"
+    colors=nodes.new("ShaderNodeSeparateColor")
+    shader=nodes.get("Principled BSDF")
+    links.new(atlas.outputs["Color"],colors.inputs["Color"])
+    links.new(colors.outputs["Green"],shader.inputs["Roughness"])
+    links.new(colors.outputs["Blue"],shader.inputs["Metallic"])
+
 def pose(offset=(0,0,0), rotation=(0,0,0), scale=1):
     return offset,rotation,(scale,scale,scale) if isinstance(scale,(int,float)) else scale
 
+def idle_stance(item, weapon):
+    turn=random.Random(item["id"]+" posture").uniform(-.12,.12)
+    if item["id"]=="thekla":
+        return {"Body":(0,.039,-.095),"Head":(.019,-.040,.074),
+                "LeftArm":(-.145,.063,.11),"RightArm":(-.093,-.032,-.058)}
+    if item["id"]=="marcus":
+        return {"Body":(.01,-.043,.125),"Head":(-.034,.034,-.157),
+                "LeftArm":(-.162,.034,.139),"RightForearm":(.141,0,0)}
+    if item["id"]=="akari":
+        return {"Body":(.015,-.026,-.117),"Head":(.012,.01,.14),
+                "RightArm":(-.095,-.062,-.086),"LeftArm":(-.116,.104,.072)}
+    if weapon in ("bow","sling"):
+        return {"Body":(.017,.006,turn-.12),"Head":(.016,0,-turn+.11),
+                "RightArm":(-.162,-.054,-.134),"LeftArm":(-.201,.173,.16)}
+    if weapon in ("staff","fan","banner"):
+        return {"Body":(0,-.025,turn),"Head":(.018,.02,-turn*.63),
+                "LeftArm":(-.194,.131,.24),"RightArm":(-.139,-.02,-.068)}
+    return {"Body":(.006,-.025,turn+.053),"Head":(-.018,.008,-turn),
+            "LeftArm":(-.101,.035,.136),"RightArm":(-.097,-.066,-.08)}
+
 def animate(arm,shape,weapon,item):
     bones=arm.pose.bones
+    stance=idle_stance(item,weapon) if item.get("kind") in ("troop","hero") else {}
     for bone in bones:
         bone.rotation_mode="QUATERNION"
     def learn(name,duration,frames):
@@ -125,6 +180,8 @@ def animate(arm,shape,weapon,item):
             targets=frames.get(frame,{})
             for bone in bones:
                 pos,angles,scale=targets.get(bone.name,pose())
+                if name=="Idle" and bone.name in stance:
+                    angles=tuple(a+b for a,b in zip(angles,stance[bone.name]))
                 bone.location=pos
                 bone.rotation_quaternion=Euler(angles,"XYZ").to_quaternion()
                 bone.scale=scale
@@ -275,14 +332,14 @@ def select_export(arm,skin):
     bpy.context.view_layer.objects.active=arm
 
 
-def furnish(item, enemy=False, review=False):
+def furnish(item, enemy=False, review_directory=None):
     clean()
     if enemy:
         from beasts import enemy_model
         root,shape,weapon=enemy_model(item)
     else:
         root,shape,weapon=humanoid(item)
-    arm,skin=bake_skin(root,item)
+    arm,skin=bake_skin(root,item,textured_material=not enemy)
     animate(arm,shape,weapon,item)
     significant=item["id"] in ("thekla","marcus","akari")
     height=1.37 if item["id"]=="titan" else 1.14 if item["id"]=="golem" else .97
@@ -311,8 +368,7 @@ def furnish(item, enemy=False, review=False):
         scene.render.image_settings.color_mode="RGBA"
         scene.render.filepath=str(PORTRAITS/f"{item['id']}.png")
         bpy.ops.render.render(write_still=True)
-    if review:
-        Path("/tmp/pd-atelier").mkdir(exist_ok=True)
+    if review_directory:
         scene.frame_set(1)
         scene.render.image_settings.file_format="PNG"
         scene.render.image_settings.color_mode="RGBA"
@@ -323,17 +379,20 @@ def furnish(item, enemy=False, review=False):
                           ("three-quarter",(3.5,-6.2,3.12))):
             camera.location=xyz
             look_at(camera,(0,0,height))
-            scene.render.filepath=f"/tmp/pd-atelier/{item['id']}-{label}.png"
+            scene.render.filepath=str(review_directory/f"{item['id']}-{label}.png")
             bpy.ops.render.render(write_still=True)
 
 
 if __name__=="__main__":
-    arguments=set(sys.argv[sys.argv.index("--")+1:]) if "--" in sys.argv else set()
-    review="--review" in arguments
-    arguments.discard("--review")
+    cli=ArgumentParser(description=__doc__)
+    cli.add_argument("actors",nargs="*",metavar="ACTOR")
+    cli.add_argument("--review",type=Path,metavar="DIRECTORY")
+    args=cli.parse_args(sys.argv[sys.argv.index("--")+1:] if "--" in sys.argv else [])
+    if args.review:
+        args.review.mkdir(parents=True,exist_ok=True)
     for item in CATALOG["actors"]:
-        if item["kind"]!="building" and (not arguments or item["id"] in arguments):
-            furnish(item,review=review)
+        if item["kind"]!="building" and (not args.actors or item["id"] in args.actors):
+            furnish(item,review_directory=args.review)
     for item in CATALOG["enemies"]:
-        if not arguments or item["id"] in arguments:
-            furnish(item,True,review)
+        if not args.actors or item["id"] in args.actors:
+            furnish(item,True,args.review)

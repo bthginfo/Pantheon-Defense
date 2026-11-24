@@ -2,6 +2,7 @@
 from math import cos, pi, sin, tau
 
 import bpy
+import bmesh
 from mathutils import Vector
 
 from forge import attach, look_at, material, rgba
@@ -17,6 +18,35 @@ def mesh_object(name, points, faces, pigment, parent, smooth=False):
     if smooth:
         for polygon in mesh.polygons:
             polygon.use_smooth = True
+    return obj
+
+
+def stone(name, center, dimensions, pigment, parent, subdivisions=1):
+    """Make an icosphere without changing selection or updating the whole scene."""
+    source = bmesh.new()
+    bmesh.ops.create_icosphere(source, subdivisions=subdivisions, radius=1.)
+    mesh = bpy.data.meshes.new(name)
+    source.to_mesh(mesh)
+    source.free()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    attach(obj, name, pigment, parent)
+    obj.location = center
+    obj.scale = dimensions
+    return obj
+
+
+def span(name, start, end, radius, pigment, parent, sides=6, top=None):
+    """Build a tapered cylinder between two endpoints in local coordinates."""
+    a,b=Vector(start),Vector(end)
+    direction=b-a
+    height=direction.length*.5
+    tip=radius if top is None else top
+    rings=[[(r*cos(tau*i/sides),r*sin(tau*i/sides),z) for i in range(sides)]
+           for z,r in ((-height,radius),(height,tip))]
+    obj=volume(name,rings,pigment,parent)
+    obj.location=(a+b)*.5
+    obj.rotation_euler=direction.to_track_quat("Z","Y").to_euler()
     return obj
 
 

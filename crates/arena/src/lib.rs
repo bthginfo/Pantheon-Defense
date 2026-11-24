@@ -91,6 +91,7 @@ pub fn play_arena(mobile: bool) {
             )
                 .chain(),
         );
+    circuit_art::install_terrain_cache(&mut app);
     app.run();
 }
 
@@ -309,6 +310,7 @@ fn setup(
         Transform::from_xyz(3.3, 26.7, 27.5).looking_at(Vec3::new(0.0, -0.12, 0.1), Vec3::Y),
         Tonemapping::ReinhardLuminance,
         Msaa::Off,
+        circuit_art::live_layers(),
     ));
     commands.spawn((
         DirectionalLight {
@@ -804,7 +806,7 @@ fn spawn_figure(
     let size = if arena.rule_version >= sim::CIRCUIT_RULES {
         match sim::actor(id).map(|actor| actor.kind.as_str()) {
             Some("building") => 1.0,
-            Some("hero") => 1.27,
+            Some("hero") => 1.35,
             _ => 1.21,
         }
     } else {
@@ -1189,6 +1191,7 @@ fn mark_boss_zone(
 
 fn orient_camera(
     mut arena: ResMut<Arena>,
+    graphics: Res<Graphics>,
     mut query: Query<(&mut Transform, &mut Projection), With<ArenaCamera>>,
 ) {
     let viewer = MAIL.with(|mail| mail.borrow().viewer);
@@ -1207,9 +1210,10 @@ fn orient_camera(
             .looking_at(Vec3::new(0., 0.04, 0.), Vec3::Y);
         *projection = Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::AutoMin {
-                min_width: 17.35,
+                min_width: if graphics.mobile { 17.82 } else { 17.35 },
                 min_height: 17.05,
             },
+            viewport_origin: Vec2::new(0.5, if graphics.mobile { 0.455 } else { 0.5 }),
             ..OrthographicProjection::default_3d()
         });
     } else {
