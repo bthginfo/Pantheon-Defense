@@ -17,7 +17,7 @@ from figures import humanoid
 from geometry import color_material, studio
 from commanders import COMMANDERS, commander
 from commander_motion import commander_clips
-from commander_finish import add_detail_uv, apply_detail
+from commander_finish import SURFACES, add_detail_uv, apply_detail
 from commander_paint import PROFILES, brush_colour
 
 TAU = math.tau
@@ -38,6 +38,7 @@ def bake_skin(root, data, textured_material=False):
     weights=defaultdict(lambda: defaultdict(list))
     variations=[]
     detail_surfaces=[]
+    detail_projections=[]
     lead_character=data["id"] in COMMANDERS
     profiles=[]
     depsgraph=bpy.context.evaluated_depsgraph_get()
@@ -47,6 +48,12 @@ def bake_skin(root, data, textured_material=False):
         points=[tuple(evaluated.matrix_world @ v.co) for v in surface.vertices]
         offset=len(positions)
         positions.extend(points)
+        if lead_character:
+            axes=list(zip(*points))
+            bounds=[(min(axis),max(axis)) for axis in axes]
+            centre=tuple((low+high)*.5 for low,high in bounds)
+            span=max(high-low for low,high in bounds)
+            projection=centre,.85/max(.29,span)
         if obj.vertex_groups:
             names={group.index:group.name for group in obj.vertex_groups}
             for vertex in surface.vertices:
@@ -66,8 +73,9 @@ def bake_skin(root, data, textured_material=False):
                            else [tuple(finish.diffuse_color)]*len(face.vertices))
             texture_contrast=float(finish.get("Surface variation",0.))
             variations.append(texture_contrast)
-            detail_surfaces.append(int(finish.get("Micro relief",0)))
             if lead_character:
+                detail_surfaces.append(SURFACES.get(finish.name,0))
+                detail_projections.append(projection)
                 profiles.append(PROFILES.get(finish.name))
             if textured_material:
                 shader=finish.node_tree.nodes.get("Principled BSDF")
@@ -125,7 +133,7 @@ def bake_skin(root, data, textured_material=False):
             attribute.data[loop].color=(color[0]*tint,color[1]*tint,color[2]*tint,1.)
     mat=color_material("Painted metal edges, textile and clay")
     if lead_character:
-        detail_uv=add_detail_uv(mesh,normals,detail_surfaces)
+        detail_uv=add_detail_uv(mesh,normals,detail_surfaces,detail_projections)
         apply_detail(mat,detail_uv)
     if textured_material:
         material_atlas(mesh,mat,finishes,16 if lead_character else 8,lead_character)

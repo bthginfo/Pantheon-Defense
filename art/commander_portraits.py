@@ -55,44 +55,50 @@ def hair(a,m):
         row=[]
         for q in angle_span(0,tau,28)[:-1]:
             at_front=max(0.,-sin(q))
-            low=height-.045+at_front*.134
+            low=height-(.068 if female else .045)+at_front*(.169 if female else .134)
             z=low+(height+.142-low)*sin(t*pi/2)
             factor=max(.013,cos(t*pi/2))
             row.append((cos(q)*(.089 if female else .094)*factor,
                         -.034+sin(q)*.100*factor,z))
         rows.append(row)
     volume('Hair cap beneath the crown and side locks',rows,m['hair'],head,True)
-    lock_count=20 if female else 14
-    for strand in range(lock_count):
-        theta=strand*tau/lock_count
+    if female:
+        for level,(count,ring_height,radius) in enumerate(((13,-.014,.092),(11,-.043,.089),(10,-.064,.081))):
+            for i in range(count):
+                q=-.40+(pi+.78)*(i+.12*(level%2))/(count-1)
+                radial=Vector((cos(q),sin(q),0.))
+                tangential=Vector((-sin(q),cos(q),0.))
+                width=radius+rng.uniform(-.005,.007)
+                origin=Vector((0,-.037,height+ring_height+rng.uniform(-.010,.007)))+radial*width
+                curl=1 if i%4!=0 else -1
+                path=[origin+radial*r+tangential*(flow*curl)+Vector((0,0,z))
+                      for r,flow,z in ((-.017,-.010,.027),(.006,-.015,.015),(.020,.000,-.003),
+                                       (.013,.017,-.014),(-.004,.019,-.006),(-.008,.012,.001))]
+                lock=tube('Hand-shaped faceted curl sweeping around the temple',head,path,
+                          [(.005,.005),(.014,.012),(.017,.014),(.015,.010),(.008,.006),(.002,.002)],
+                          m['hair warmth'] if (i+level)%5==0 else m['hair'],6,across=radial,smooth=False)
+                for face in lock.data.polygons:
+                    face.use_smooth=(face.index-1)//6 in (1,2,3)
+        return
+    for strand in range(14):
+        theta=strand*tau/14
         facing=max(0.,-sin(theta))
         if facing>.44:
             continue
-        radial=.076+(.005 if not female else rng.uniform(-.004,.006))
+        radial=.081
         low=height-.028+rng.uniform(-.017,.013)
         depth=.085+rng.uniform(0,.008)
-        trail=.066 if female else .038
         path=[]
         for t in (0,.26,.54,.77,1.):
             tilt=theta+.31*t+.21*sin(t*pi*1.35)
-            x=cos(tilt)*(radial+.009*sin(t*pi))
-            y=-.033+sin(tilt)*(depth+.006*sin(t*pi))
-            z=low+trail*(1.-t)+.010*sin(t*pi*1.7)
+            bulge=.009*sin(t*pi)
+            x=cos(tilt)*(radial+bulge)
+            y=-.033+sin(tilt)*(depth+.85*bulge)
+            z=low+.038*(1.-t)+.010*sin(t*pi*1.7)
             path.append((x,y,z))
-        shapes=[(.003,.003),(.010,.007),(.013,.008),(.010,.006),(.0018,.0016)] if female else [
-                (.003,.002),(.009,.005),(.010,.005),(.006,.004),(.0017,.0015)]
-        tube('Tapered cut of swept hair' if female else 'Close-cropped side lock',head,path,shapes,
+        shapes=[(.003,.002),(.009,.005),(.010,.005),(.006,.004),(.0017,.0015)]
+        tube('Close-cropped side lock',head,path,shapes,
              m['hair warmth'] if strand%7==3 else m['hair'],6,across=(cos(theta),sin(theta),.23),smooth=False)
-    if female:
-        for sign in (-1,1):
-            for i in range(3):
-                x=sign*(.067+.005*i)
-                y=-.096+.013*i
-                z=height+.046-.009*i
-                path=[(x-sign*.011,y+.011,z+.016),(x-sign*.013,y-.005,z+.004),(x-sign*.007,y-.008,z-.011),
-                      (x+sign*.005,y-.004,z-.019),(x+sign*.003,y+.001,z-.008)]
-                tube('Bent lock at the temple',head,path,[(.004,.003),(.010,.007),(.009,.007),(.007,.005),(.002,.002)],
-                     m['hair warmth'] if i==1 else m['hair'],6,across=(.52,.22,.54),smooth=False)
 
 
 def beard(a,m):
@@ -144,7 +150,7 @@ def helmet(a,m):
     head=a.part('Head')
     eye=a.joint('l-eye')
     greek=a.name=='thekla'
-    rx,ry=(.093,.113) if greek else (.109,.135)
+    rx,ry=(.103,.121) if greek else (.112,.135)
     cy=-.037 if greek else -.060
     top=eye.z+(.127 if greek else .144)
     cols=angle_span(-pi/2,3*pi/2,16)[:-1]
@@ -155,7 +161,7 @@ def helmet(a,m):
         rise=(sin(t*pi/2))**(1.17 if greek else 1.03)
         width=max(.035,cos(t*pi/2))*(1+.043*sin(3*pi*t))
         ridge=max(0.,1.-3.0*abs(cos(q)))*max(0.,facing)
-        prow=(.010 if greek else .006)*ridge*(1.-t)
+        prow=(.018 if greek else .007)*ridge*(1.-t)
         return rx*width*cos(q),cy+ry*width*sin(q)-prow,lower+(top-lower)*rise
     rows=[[crown(q,t) for q in cols] for t in levels]
     shell=volume('Forged helmet crown with hand-set planes',rows,m['bronze'] if greek else m['dark iron'],head)
@@ -172,7 +178,8 @@ def helmet(a,m):
         q=pi+pi*u
         x,y,z=crown(q,0.)
         beak=max(0.,1.-3.2*abs(2*u-1))
-        return x*1.025,y-.0038-.007*sin(pi*u),z+(.023 if greek else .018)*v-(.008 if greek else .004)*beak
+        lip=.021+.017*beak if greek else .020
+        return x*1.025,y-.0043-.007*sin(pi*u)+.005*v,z+lip*v-(.032 if greek else .006)*beak
     strips('Angular brow with a central peak and a bevel',head,band_cols,[0,.25,.80,1.],brow,
                [m['bronze'],m['brass'],m['gold dark']],lambda u,v:1 if v<.20 else 2 if v>.85 else 0,
            lining=.003,smooth=False)
@@ -181,23 +188,24 @@ def helmet(a,m):
             y=-.073-.77*(.088-abs(x))
             return side*x,y-depth,eye.z+z
         if greek:
-            outline=[(.064,.042),(.085,.050),(.099,.017),(.095,-.027),(.077,-.057),(.066,-.040),(.076,-.006)]
+            outline=[(.067,.060),(.100,.050),(.111,.010),(.103,-.047),(.074,-.062),(.066,-.040),(.079,-.009)]
         else:
-            outline=[(.073,.046),(.105,.047),(.114,.016),(.106,-.042),(.088,-.069),(.078,-.052),(.086,-.025),(.072,-.004)]
+            outline=[(.075,.049),(.110,.050),(.120,.017),(.114,-.044),(.094,-.075),(.078,-.052),(.089,-.025),(.075,-.004)]
         relief('Bevelled metal cheek guard',head,outline,placing,m['bronze'] if greek else m['iron'],
                m['gold dark'] if greek else m['bronze'],.008,.15)
-        inset=[(.079,.031),(.087,.036),(.093,.011),(.086,-.026),(.076,-.038),(.085,.002)]
+        inset=[(.083,.035),(.094,.036),(.100,.006),(.095,-.035),(.079,-.047),(.086,-.005)] if greek else [
+               (.085,.036),(.105,.039),(.108,.011),(.101,-.044),(.093,-.054),(.090,-.009)]
         relief('Folded ridge descending to the tip of the cheek guard',head,inset,
                lambda x,z,d:placing(x,z,d+.007),m['brass'] if greek else m['iron edge'],m['bronze'],.0026,.11)
         for dx,dz in ((.087,.026),(.091,-.019)):
             stone('Forged temple rivet',placing(dx,dz,.012),(.0045,.0025,.0045),m['brass'],head,1)
     if greek:
-        low=[(-.130,top-.020),(-.096,top+.002),(-.032,top+.004),(.024,top-.006),(.083,top-.037)]
-        high=[(-.108,top+.028),(-.055,top+.058),(.016,top+.059),(.086,top+.039),(.147,top+.001)]
-        crest(head,low,high,.024,m['teal'],m['teal light'],m['bronze'],False)
+        low=[(-.135,top-.029),(-.080,top-.001),(-.029,top+.006),(.024,top-.003),(.108,top-.046)]
+        high=[(-.108,top+.036),(-.058,top+.081),(.011,top+.113),(.088,top+.121),(.180,top+.080)]
+        crest(head,low,high,.025,m['teal'],m['teal light'],m['bronze'],False)
     else:
         low=[(-.119,top-.032),(-.065,top-.005),(0.,top+.004),(.065,top-.002),(.117,top-.024)]
-        high=[(-.176,top+.025),(-.107,top+.080),(-.022,top+.108),(.073,top+.099),(.162,top+.055)]
+        high=[(-.184,top+.030),(-.102,top+.087),(-.021,top+.109),(.077,top+.103),(.175,top+.053)]
         crest(head,low,high,.034,m['red'],m['red fold'],m['bronze'],True)
 
 
@@ -217,11 +225,11 @@ def crest(head,low,high,width,dark,light,metal,across):
         x=x0+(x1-x0)*t
         z=z0+(z1-z0)*t
         thick=side*width*(.53+.47*sin(t*pi))*(.79+.21*sin(u*pi))
-        ridged=.0027*sin(34*u+1.5*t)
+        ridged=.0047*sin(47*u+1.5*t)
         if across:
             return x,-.055+thick+ridged,z
         return thick+ridged,x,z
-    u=[0,.08,.19,.31,.43,.55,.68,.79,.90,1.]
+    u=[0,.068,.143,.226,.31,.395,.49,.58,.672,.762,.85,.927,1.]
     rows=[0,.29,.69,1.]
     front_side=-1 if across else 1
     for side in (-1,1):

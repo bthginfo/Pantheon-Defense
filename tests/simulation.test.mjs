@@ -34,6 +34,10 @@ test('exported Blender actors include the clips used by Bevy', () => {
       assert.ok(Number.isInteger(attributes.TANGENT), `${actor.id}: normal-map tangents`);
       assert.ok(Number.isInteger(attributes.TEXCOORD_1), `${actor.id}: second material UV set`);
       assert.ok(Number.isInteger(asset.materials[0].normalTexture?.index), `${actor.id}: woven and tooled surfaces`);
+      const painted = asset.materials[0].pbrMetallicRoughness.baseColorTexture;
+      assert.ok(Number.isInteger(painted?.index), `${actor.id}: hand-painted colour atlas`);
+      assert.equal(painted.texCoord ?? 0, asset.materials[0].normalTexture.texCoord ?? 0,
+        `${actor.id}: colour and relief share the surface UVs`);
       assert.equal(asset.materials[0].pbrMetallicRoughness.metallicRoughnessTexture.texCoord,1,actor.id);
     }
   }

@@ -1,22 +1,26 @@
 # Thekla und Marcus zur Abnahme
 
-Thekla und Marcus sind für diese Runde mit größeren Polygonflächen modelliert. Helm, Rüstung und Stoff setzen dadurch auch in der Ganzkörperansicht klare Kanten. Die gemalten Farbverläufe und Gebrauchsspuren sind in den exportierten Spielmodellen enthalten.
+Thekla und Marcus setzen die freigegebene Stilreferenz mit klaren Polygonflächen und handgemalten Oberflächen in Blender um. Die Farbtextur enthält unterschiedlich gerichtete Pinselstriche für Bronze, Eisen, Leinen, Leder und Schildlack. Bevy verwendet diese Textur aus den exportierten Spielmodellen.
 
-![Blender-Renderings der neuen Fassung mit Thekla links und Marcus rechts](paar.webp)
+![Blender-Renderings von Thekla links und Marcus rechts](paar.webp)
 
-## Abgleich mit dem Zielbild
+## Abgleich mit der Stilreferenz
 
-- **Thekla** greift den offenen Bronzehelm mit flachem jadengrünem Kamm, das gekreuzte Leder über Leinen und das Rundschild des Zielbilds auf. Die Sonnenstrahlen haben ungleich lange Spitzen und gefaltete Metallflächen. Bronzeplatten und Leinenfalten zeichnen ihre Silhouette nach.
-- **Marcus** greift den roten Querkamm, die überlappenden Eisenplatten, den dunklen Lederrock und den hohen roten Schild des Zielbilds auf. Die Adlerflügel bestehen aus einzeln modellierten Federn. Die Schildrückseite zeigt gebogene Holzleisten mit einem Griff auf einem Querholz.
+- **Thekla** trägt einen Bronzehelm mit zurückgeschwungenem Jadekamm, gestufte Schulterplatten und diagonal überlappende Leinenbahnen. Der Umhang fällt mit einem Terrakottamäander zur Speerseite. Das gewölbte Schild trägt dunkelgrünen Lack und geschmiedete Sonnenstrahlen.
+- **Marcus** überträgt die breiten Facetten und die gemalten Abriebspuren auf eine römische Silhouette mit roten Wollfalten, getriebenen Eisenplatten und einem Adlerrelief auf dem geschwungenen Scutum.
 
-Der direkte Vergleich mit der letzten bemalten Fassung nutzt dieselbe Pose, Kamera und Beleuchtung. [Vorher und neue Polygonflächen](poly-vergleich.webp)
+[Freigegebene Stilreferenz](../../references/thekla-handpainted-poly-referenz.png) · [Stilreferenz neben dem Blender-Modell](stilabgleich-thekla.webp)
+
+Die Aufnahmen vor und nach der Umsetzung verwenden dieselbe Kamera und Beleuchtung. [Vorige und aktuelle Blender-Fassung](poly-vergleich.webp)
 
 | Ansicht | Was sich daran prüfen lässt |
 | --- | --- |
-| [Gesichter und Helme](nahaufnahmen.webp) | Helmschalen, Wangenschutz, Haaransätze und Stoffabschlüsse |
-| [Schilde und Rüstung](oberflaechen.webp) | Sonnenstrahlen, Adlerfedern, Schulterplatten und Riemen |
-| [Rückseite](bemalte-umhaenge.webp) | Umhänge, Schildgurte und Schildgriff |
-| [Angriffsposen](aktion.webp) | Theklas Speerstoß und Marcus’ Signal mit gestütztem Schild |
+| [Gesichter und Helme](nahaufnahmen.webp) | Wangenschutz, Locken, Helmzier und Pinselspuren auf Metall |
+| [Schilde und Rüstung](oberflaechen.webp) | Schildlack, Sonnenstrahlen, Adlerfedern und die Kanten der Platten |
+| [Rückseite](bemalte-umhaenge.webp) | Gemusterte Umhänge, Schildgurte und Schildgriff |
+| [Angriffsposen](aktion.webp) | Speerstoß, bewegliche Leinenbahnen und Marcus’ Signal |
+
+In der lokalen Spielprobe erscheinen beide Figuren nach ihrem Heldenrezept auf dem Spielfeld. Die Aufnahmen zeigen Thekla in der Ägäis und Marcus in Rom. [Bevy-Spielprobe](spielprobe.webp)
 
 In den Blender-Szenen sind die Bauteile und die Animationen editierbar. [Thekla](../../blend/thekla.blend) · [Marcus](../../blend/marcus.blend)
 

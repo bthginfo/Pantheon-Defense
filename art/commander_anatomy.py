@@ -39,18 +39,18 @@ class Anatomy:
         if self.name=='thekla':
             if turn>0:
                 posed_elbow=shoulder+Vector((.149,-.050,-.230))
-                posed_wrist=posed_elbow+Vector((.121,-.155,-.049))
+                posed_wrist=posed_elbow+Vector((.111,-.170,-.037))
                 hand_vector=(.08,-.90,.31)
                 width_axis=(-.30,.25,.93)
                 curl=.64
             else:
-                posed_elbow=shoulder+Vector((-.155,-.023,-.214))
-                posed_wrist=posed_elbow+Vector((-.126,-.153,.139))
+                posed_elbow=shoulder+Vector((-.144,-.032,-.222))
+                posed_wrist=posed_elbow+Vector((-.152,-.128,.140))
                 hand_vector=(-.13,-.94,.09)
                 width_axis=(-.09,.03,.99)
                 curl=.94
-            posed_knee=Vector((.104,-.060,.478) if turn>0 else (-.139,.052,.466))
-            posed_ankle=Vector((.144,-.101,ankle.z) if turn>0 else (-.206,.103,ankle.z))
+            posed_knee=Vector((.121,-.098,.481) if turn>0 else (-.133,.071,.465))
+            posed_ankle=Vector((.178,-.177,ankle.z) if turn>0 else (-.196,.116,ankle.z))
         else:
             if turn>0:
                 posed_elbow=shoulder+Vector((.150,-.033,-.239))
@@ -141,7 +141,9 @@ class Anatomy:
                 hue=Vector(skin.diffuse_color[:3])
                 if z>head.z-.09 and abs(x)<.102 and y<-.05:
                     cheek=max(0.,1.-abs(abs(x)-.054)/.04)*max(0.,1.-abs(z-(eyes.z-.033))/.037)
-                    hue=hue.lerp(Vector(flush.diffuse_color[:3]),.31*cheek)
+                    hollow=max(0.,1.-abs(abs(x)-.055)/.025)*max(0.,1.-abs(z-(eyes.z-.063))/.024)
+                    hue=hue.lerp(Vector(flush.diffuse_color[:3]),.43*cheek)
+                    hue*=1.+.16*cheek-.21*hollow
                     if index in mouth:
                         hue=hue.lerp(Vector(lip.diffuse_color[:3]),.60 if self.name=='thekla' else .52)
                     if self.name=='marcus' and abs(x)<.089:

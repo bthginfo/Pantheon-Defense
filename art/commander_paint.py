@@ -30,6 +30,7 @@ PIGMENTS = {
     'hide edge': ('563a38', 'd6ab78', .47),
     'hide dark': ('272631', '85624a', .52),
     'wood': ('392a31', '9f7852', .52),
+    'ash': ('242837', '88674f', .56),
 }
 PROFILES = {name: (rgba(shadow), rgba(glaze), strength)
             for name, (shadow, glaze, strength) in PIGMENTS.items()}
@@ -67,7 +68,7 @@ def paint_losses(name, parent, place, marks, pigments):
 def shield_wash(obj, centre, inverse, width, height, greek):
     """Glaze each shield in its own space, so the paint turns with the arm."""
     paint='paint blue' if greek else 'paint red'
-    shadow, glaze=map(rgba,('182c42','559082') if greek else ('422230','af6949'))
+    shadow, glaze=map(rgba,('172e32','5d876c') if greek else ('422230','b1654a'))
     attr=obj.data.color_attributes.new(name='Artist pigment',type='FLOAT_COLOR',domain='CORNER')
     for face in obj.data.polygons:
         finish=obj.data.materials[face.material_index]

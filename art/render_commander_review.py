@@ -12,6 +12,7 @@ from geometry import mesh_object
 
 VIEWS = {
     'hero': ((.72,-6.1,1.60),(.002,-.044,1.117),2.445, (850,1090)),
+    'three-quarter': ((-2.65,-6.3,1.62),(.004,-.044,1.117),2.445, (850,1090)),
     'front': ((.001,-6.1,1.53),(.002,-.044,1.116),2.445, (820,1080)),
     'profile': ((-5.7,-.35,1.57),(.002,-.11,1.116),2.445, (820,1080)),
     'back': ((-.57,5.7,1.71),(.002,-.020,1.116),2.445, (820,1080)),
@@ -64,6 +65,9 @@ def render(name, source, output, views, draft):
     arm=bpy.data.objects[f'{name} rig']
     for label in views:
         eye,center,scale,dimensions=VIEWS[label]
+        if label=='three-quarter' and name=='thekla':
+            center=(.036,-.044,1.013)
+            scale=2.26
         if label=='head' and name=='marcus':
             eye=eye[0],eye[1],eye[2]+.073
             center=center[0],center[1],center[2]+.073

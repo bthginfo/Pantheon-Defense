@@ -11,21 +11,21 @@ from geometry import mesh_object, span, stone, volume
 def thekla_spear(a,m):
     parent=a.part('RightHand')
     grip=a.hand_point('Right',.073)
-    x,y=grip.x-.021,grip.y-.011
+    x,y=grip.x-.022,grip.y-.012
     def pick(z):
-        return x+.060*(1.29-z),y+.018*(1.29-z),z
-    path=[pick(z) for z in (.026,.059,.501,1.013,1.408,1.76,1.967)]
-    tube('Tapered oiled ash spear haft',parent,path,[(.014,.014),(.015,.015),(.015,.015),
-        (.016,.016),(.015,.015),(.013,.013),(.012,.012)],m['wood'],12,across=(1,0,0))
-    for z,r,length in ((.073,.016,.103),(1.876,.015,.056),(1.944,.021,.072)):
+        return x+.065*(grip.z-z),y+.022*(grip.z-z),z
+    path=[pick(z) for z in (.026,.059,.501,1.013,1.408,1.578,1.699)]
+    tube('Eight-sided stained ash spear haft',parent,path,[(.016,.016),(.019,.019),(.019,.019),
+        (.019,.019),(.018,.018),(.016,.016),(.013,.013)],m['ash'],8,across=(1,0,0),smooth=False)
+    for z,r,length in ((.073,.020,.112),(1.611,.0185,.069),(1.684,.023,.089)):
         tube('Spun bronze on the heel or spear socket',parent,[pick(z+t*length) for t in (-.5,-.34,.33,.50)],
              [(r*.66,r*.66),(r,r),(r,r),(r*.72,r*.72)],m['bronze'],10,across=(1,0,0))
-    for offset in (-.080,-.056,-.033,.002,.031,.064):
+    for offset in (-.082,-.056,-.033,.002,.031,.068):
         z=grip.z+offset
-        span('Leather lashing at the hand grip',pick(z-.007),pick(z+.008),.016,m['hide'],parent,10,.016)
-    z0=1.94
+        span('Leather lashing at the hand grip',pick(z-.008),pick(z+.008),.0195,m['hide'],parent,8,.0195)
+    z0=1.680
     x0,y0,_=pick(z0)
-    cross_sections=((.011,.012,.007),(.067,.021,.011),(.124,.039,.016),(.195,.025,.010),(.270,.0005,.0005))
+    cross_sections=((.012,.014,.009),(.068,.029,.013),(.121,.046,.018),(.188,.029,.012),(.270,.0005,.0005))
     rows=[[(x0+dx,y0+dy,z0+h) for dx,dy in ((-w,0),(0,-d),(w,0),(0,d))] for h,w,d in cross_sections]
     blade=volume('Leaf-shaped spearhead, hammered steel on its bronze socket',rows,m['iron edge'],parent)
     blade.data.materials.append(m['iron'])
@@ -48,61 +48,71 @@ def sun_shield(a,m):
     parent=a.part('LeftForearm')
     held=a.hand_point('Left')
     center=Vector((held.x+.028,held.y-.057,held.z-.046))
-    tilt=Euler((-.107,.087,-.335)).to_matrix()
-    radius=.309
+    tilt=Euler((-.113,.086,.086)).to_matrix()
+    radius=.366
+    curvature=.067
+    sectors=16
     inverse=tilt.transposed()
     clearance=[]
     for point in a.hands['Left']:
         x,y,z=inverse@(point-center)
         r=(x*x+z*z)/(radius*radius)
         if r<.95:
-            clearance.append(y+.051*(1.-r))
+            clearance.append(y+curvature*(1.-r))
     if clearance:
         center+=tilt@Vector((0.,min(0.,min(clearance)-.014),0.))
     def place(x,z,d):
         radial=(x*x+z*z)/(radius*radius)
-        curved=-.051*(1.-min(1.1,radial))
+        curved=-curvature*(1.-min(1.1,radial))
         return tuple(center+tilt@Vector((x,curved-d,z)))
-    rim=[(.012,-.044),(.62,-.042),(.947,-.038),(1.010,-.025),(1.025,-.007),
-         (1.013,.006),(.974,.012),(.934,.009),(.897,.002),(.69,0.),(.41,0.),(.18,0.),(.006,0.)]
-    rows=[[place(r*radius*cos(t),r*radius*sin(t),d) for t in angle_span(0,tau,20)[:-1]] for r,d in rim]
+    rim=[(.012,-.045),(.62,-.043),(.942,-.040),(1.008,-.025),(1.026,-.008),
+         (1.013,.010),(.972,.017),(.927,.010),(.890,.001),(.70,0.),(.46,0.),(.20,0.),(.006,0.)]
+    rows=[[place(r*radius*cos(t),r*radius*sin(t),d) for t in angle_span(0,tau,sectors)[:-1]] for r,d in rim]
     shield=volume('Hammered aspis with bevelled bronze rim and broad painted faces',rows,m['paint blue'],parent)
     for shade in (m['wood'],m['bronze'],m['brass'],m['gold dark']):
         shield.data.materials.append(shade)
     for face in shield.data.polygons:
-        row=(face.index-1)//20
+        row=(face.index-1)//sectors
         face.material_index=1 if row<2 else 4 if row==2 else 2 if row in (3,4,6) else 3 if row in (5,7) else 0
     shield_wash(shield,center,inverse,radius,radius,True)
-    paint_losses('Soft turquoise and verdigris at the edges of the painted aspis',parent,place,
-                 [(-.207,.148,.029,.008,.24),(-.238,.112,.015,.005,.27),
-                  (-.165,.194,.020,.009,-.18),(.083,.228,.021,.007,.49),
-                  (.232,-.096,.022,.006,-.50),(.207,-.145,.035,.008,.57),
-                  (.175,-.180,.014,.005,.72),(-.140,-.208,.022,.007,-.73),
-                  (-.246,-.065,.010,.006,-.02)],
+    paint_losses('Irregular drybrush along the inside of the bronze rim',parent,place,
+                 [(-.241,.153,.033,.010,.24),(-.280,.118,.018,.005,.27),
+                  (-.183,.213,.027,.009,-.18),(.092,.247,.026,.009,.49),
+                  (.284,-.091,.024,.007,-.50),(.237,-.158,.043,.009,.57),
+                  (.200,-.207,.023,.005,.72),(-.155,-.241,.025,.007,-.73),
+                  (-.277,-.082,.018,.005,-.02)],
                  [m['scuffed turquoise'],m['verdigris']])
+    for index in range(sectors):
+        steps=((.09,.857),(.09,.808),(.83,.808),(.83,.860),(.34,.860),(.34,.831),(.64,.831))
+        path=[]
+        for share,extent in steps:
+            q=(index+share)*tau/sectors
+            r=radius*extent
+            path.append(place(r*cos(q),r*sin(q),.0052))
+        piping('Terracotta key pattern painted around the aspís',parent,path,.0024,m['hem red'],5)
     for index in range(8):
         phase=index*tau/8+.18
-        def ray(radius,angle,depth):
-            return place(radius*cos(phase+angle),radius*sin(phase+angle),depth)
+        def ray(extent,angle,depth):
+            return place(radius*extent*cos(phase+angle),radius*extent*sin(phase+angle),depth)
         # A central hammer ridge runs through each ray. The polygon edges turn with the shield.
         long=index%2==0
-        tip=.268 if long else .239
-        sections=[(.050,-.012,.136,.003),(.103,-.015,.131,.009),
-                  (.164,.006,.119,.014),(.216,.058,.055,.009),(tip,.115,.003,.005)]
+        tip=.810 if long else .754
+        sections=[(.144,-.060,.178,.004),(.30,-.079,.142,.012),
+                  (.479,-.017,.106,.017),(.656,.090,.047,.013),(tip,.185,.002,.006)]
         if not long:
-            sections[-2]=(.201,.066,.050,.008)
+            sections[-2]=(.620,.076,.052,.012)
         vertices=[]
         for r,arc,width,lift in sections:
-            vertices.extend((ray(r,arc-width,.0023),ray(r,arc,lift),ray(r,arc+width,.0023)))
+            vertices.extend((ray(r,arc-width,.003),ray(r,arc,lift),ray(r,arc+width,.003)))
         faces=[(i,i+3,i+4,i+1) for i in range(0,len(vertices)-3,3)]
         faces.extend((i+1,i+4,i+5,i+2) for i in range(0,len(vertices)-3,3))
         sun=mesh_object('Swept bronze ray chased into two faces',vertices,faces,m['brass'],parent)
         sun.data.materials.append(m['bronze'])
         for face in list(sun.data.polygons)[len(sections)-1:]:
             face.material_index=1
-    boss('Domed raised sun at the hub of the aspis',parent,place,m,.056)
-    for q in angle_span(0,tau,20)[:-1]:
-        p=place(.296*cos(q),.296*sin(q),.015)
+    boss('Domed raised sun at the hub of the aspis',parent,place,m,.067)
+    for q in angle_span(0,tau,sectors)[:-1]:
+        p=place(.358*cos(q),.358*sin(q),.021)
         obj=stone('Heat-darkened bronze pin in the shield rim',p,(.0048,.0041,.0048),m['brass'],parent,1)
         for f in obj.data.polygons:
             f.use_smooth=True
@@ -154,7 +164,7 @@ def scutum(a,m):
     height=(top-bottom)*.5
     center=Vector((grip.x+.003,grip.y+.038,(top+bottom)*.5))
     tilt=Euler((-.087,.041,-.105)).to_matrix()
-    width=.251
+    width=.270
     def place(x,z,d):
         curve=.090*abs(x)+.101*max(0.,abs(x)-.110)
         return tuple(center+tilt@Vector((x,curve-d,z)))

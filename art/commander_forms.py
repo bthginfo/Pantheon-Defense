@@ -8,20 +8,21 @@ from geometry import mesh_object, volume
 
 
 FINISHES = {
-    'bronze': ('8e5c3b', .53, .56, .22), 'brass': ('c59350', .57, .46, .22),
-    'gold dark': ('744b34', .45, .54, .14), 'iron': ('323a48', .42, .62, .19),
-    'iron edge': ('71828f', .46, .49, .14), 'dark iron': ('272e3e', .43, .62, .18),
-    'linen': ('cab797', 0, .81, .11), 'linen light': ('e1cba6', 0, .77, .09),
-    'linen shadow': ('a38b6c', 0, .82, .13), 'weft': ('ddbc8c', 0, .78, .11),
-    'teal': ('214b50', 0, .86, .24), 'teal light': ('3a6c64', 0, .83, .21),
-    'teal lining': ('202d38', 0, .87, .22), 'paint blue': ('215456', .07, .74, .20),
-    'red': ('67262c', 0, .87, .25), 'red fold': ('893a3a', 0, .85, .23),
+    'bronze': ('a47748', .51, .52, .22), 'brass': ('d1a660', .49, .48, .22),
+    'gold dark': ('795139', .40, .59, .14), 'iron': ('465163', .42, .57, .19),
+    'iron edge': ('839caa', .44, .47, .14), 'dark iron': ('35404f', .43, .61, .18),
+    'linen': ('dec39b', 0, .81, .11), 'linen light': ('ebd3ad', 0, .77, .09),
+    'linen shadow': ('b29370', 0, .82, .13), 'weft': ('ddbc8c', 0, .78, .11),
+    'teal': ('2b5249', 0, .86, .24), 'teal light': ('446c5b', 0, .83, .21),
+    'teal lining': ('202d31', 0, .87, .22), 'paint blue': ('2c5047', .04, .76, .20),
+    'red': ('743039', 0, .87, .25), 'red fold': ('994d44', 0, .85, .23),
     'red lining': ('3f2637', 0, .86, .20), 'paint red': ('782f2c', .06, .73, .20),
-    'hem red': ('ac674d', 0, .80, .18), 'hem blue': ('34434a', 0, .78, .15),
+    'hem red': ('ae6243', 0, .80, .18), 'hem blue': ('34434a', 0, .78, .15),
     'verdigris': ('58847b', 0, .87, .08), 'scuffed turquoise': ('487473', 0, .85, .10),
     'faded madder': ('9d5441', 0, .83, .10), 'screened oxblood': ('684538', 0, .87, .08),
     'hide': ('5b3d30', 0, .73, .19), 'hide edge': ('8c654b', 0, .68, .15),
     'hide dark': ('382c28', 0, .75, .16), 'wood': ('6a4d33', 0, .68, .19),
+    'ash': ('4d3c34', 0, .69, .20),
     'hair': ('2b2423', 0, .60, .17), 'hair warmth': ('47372e', 0, .63, .16),
     'grey hair': ('675c55', 0, .66, .19), 'beard': ('42362f', 0, .66, .20),
     'lip': ('965449', 0, .66, .05), 'flush': ('bd7056', 0, .71, .10),
@@ -37,12 +38,6 @@ def paints():
         shade=material(key,rgb,metal)
         shade.node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value=rough
         shade['Surface variation']=variation
-        if metal>.18:
-            shade['Micro relief']=2
-        elif key.startswith(('hide','wood','paint ')):
-            shade['Micro relief']=3
-        elif key.startswith(('linen','teal','red','hem','weft')):
-            shade['Micro relief']=1
         result[key]=shade
     return result
 
