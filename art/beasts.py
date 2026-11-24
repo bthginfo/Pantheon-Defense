@@ -4,8 +4,9 @@ from random import Random
 
 from forge import empty, material, span
 from figures import cut, curve, emblem, fabric_panel, limb, pin
-from commander_forms import relief, strips
+from commander_forms import strips
 from geometry import bevel_block as block, mesh_object, shell, silhouette, torus_mesh
+from beast_armor import finish_guards, regional_paints
 
 TINTS = {
     "reaver": ("584052","997072","b57a61","e5a476","6b4862"),
@@ -44,6 +45,8 @@ def palette(item):
         if pigment:
             shade["Brush pigment"]=pigment
         paints[name]=shade
+    if region:
+        paints.update(regional_paints(region))
     return paints
 
 
@@ -107,12 +110,16 @@ def hound(item,m):
             leg=empty(label,(x,y,z),root)
             ball=cut("Slanted heavy canine foreleg",leg,(side*.024,0,-.079),(.146,.169,.229),m["rock"],2)
             ball.rotation_euler.x=.30*front
-            limb("Shale leg below the joint",leg,(side*.04,.028,-.127),(side*.081,.009,-z+.11),
-                 [(0,.114,.104),(.39,.132,.105),(.76,.086,.081),(1,.082,.087)],m["ink"])
-            cut("Heavy four-legged paw",leg,(side*.082,-.057,-z+.087),(.141,.161,.095),m["rock"],2)
+            upper=z*.49
+            lower=z-.089-upper
+            joint=empty(label+"Lower",(side*.043,.013,-upper),leg)
+            paw=empty(label+"Paw",(side*.037,-.004,-lower),joint)
+            limb("Calf below the joint",joint,(0,0,.019),(side*.037,-.004,-lower),
+                 [(0,.106,.111),(.37,.120,.105),(.76,.085,.081),(1,.074,.085)],m["ink"])
+            cut("Heavy four-legged paw",paw,(0,-.058,0),(.134,.156,.091),m["rock"],1)
             for n in range(3):
-                t=side*.081+(n-1)*.063
-                span("Sharp stone toe",(t,-.12,-z+.081),(t,-.232,-z+.053),.040,m["claw"],leg,6,.012)
+                t=(n-1)*.058
+                span("Sharp stone toe",(t,-.113,-.009),(t,-.189,-.037),.038,m["claw"],paw,6,.012)
     curve("Raised segmented hound tail",tail,[(0,0,0),(.018,.211,.12),(.063,.391,.348),(.132,.419,.52),
           (.212,.305,.596)],[.123,.11,.084,.049,.014],m["accent"],7)
     return root,"hound","fang"
@@ -141,12 +148,13 @@ def moth(item,m):
             faces=[(0,1,7),(1,2,6),(1,6,7),(2,3,4),(2,4,5),(2,5,6)]
             if side*sl>0: faces=[tuple(reversed(face)) for face in faces]
             wing=mesh_object("Folded translucent-looking wing facets",verts,faces,None,group)
-            for chroma in (m["rock"],m["accent"],m["ink"],m["old gold"]):
+            pigments = (m["ivory"],m["madder"],m["cloth"],m["old gold"]) if item.get("theme") else (m["rock"],m["accent"],m["ink"],m["old gold"])
+            for chroma in pigments:
                 wing.data.materials.append(chroma)
             for f,c in zip(wing.data.polygons,(0,1,0,3,1,2)):
                 f.material_index=c
             wing.modifiers.new("Folded wing thickness","SOLIDIFY").thickness=.019
-            curve("Tapered wing piping",group,verts[1:],[.020,.014,.012,.013,.013,.018,.011],m["rock"],6)
+            curve("Tapered wing piping",group,verts[1:],[.020,.014,.012,.013,.013,.018,.011],pigments[3],6)
         curve("Long swept metallic antenna",head,[(side*.052,-.031,.098),(side*.150,-.019,.209),
              (side*.242,.044,.363),(side*.408,.088,.451)],[.021,.019,.015,.007],m["old gold"],7)
         pin("Antenna cap",(side*.408,.085,.450),.023,m["ember"],head)
@@ -162,12 +170,12 @@ def wisp(item,m):
     body=empty("Body",(0,0,.81),root)
     rings=empty("Mantle",(0,0,.075),body)
     core=empty("Head",(0,0,.06),body)
-    cut("Flickering heart of the ash ghost",core,(0,0,0),(.189,.159,.274),m["ember"],1)
+    cut("Flickering heart of the rift spirit",core,(0,0,0),(.189,.159,.274),m.get("light",m["ember"]),1)
     cut("Outer smoky-hued shard",body,(0,.083,-.06),(.207,.194,.281),m["rock"],2)
     for angle,rad in ((.32,.279),(.95,.34),(1.45,.390)):
         holder=empty("Free orbit of the spirit",(0,0,0),rings)
         holder.rotation_euler=(angle,angle*.7,angle*.88)
-        torus_mesh("Tapered hoops of folded brass",(0,0,0),rad,.027,m["old gold"],holder,16,5)
+        torus_mesh("Tapered hoops of folded brass",(0,0,0),rad,.027,m["old gold"],holder,12,5)
         for n in range(3):
             a=angle+n*tau/3
             spark=cut("Streak at the rim of orbit",holder,(cos(a)*rad,sin(a)*rad,0),
@@ -273,7 +281,7 @@ def humanoid_foe(item,m):
         lower=empty(label+"Forearm",(side*.048,-.027,-.244),arm)
         cut("Fractured forearm gauntlet",lower,(side*.034,-.035,-.132),(.126*width,.122,.178),m["rock"],2)
         cut("Heavy angular fist",lower,(side*.081,-.064,-.278),(.112*width,.101,.116),m["old gold"] if boss else m["ink"],1)
-        if heavy:
+        if heavy and not item.get("theme"):
             for n in range(3):
                 p=(side*(.034+.064*n),-.043,-.015+(.018 if n==0 else -.011*n))
                 pin("Hammered shoulder pin",p,.034,m["old gold"],arm)
@@ -284,12 +292,16 @@ def humanoid_foe(item,m):
                 x=side*.053+(n-1)*.043
                 span("Jagged claw of the rift scout",(x,-.072,-.232),(x,-.150,-.395),.025,m["claw"],lower,6,.007)
         leg=empty(label+"Leg",(side*.152*width,.032,.772),root)
-        limb("Leg of layered basalt",leg,(0,0,-.031),(side*.039,.008,-.609),
-            [(0,.122*width,.117),(.37,.114*width,.121),(.70,.105,.094),(1,.081,.094)],m["ink"])
+        shin=empty(label+"Shin",(side*.025,.010,-.357),leg)
+        foot=empty(label+"Foot",(side*.030,-.006,-.326),shin)
+        limb("Thigh beneath the armour",leg,(0,0,-.021),(side*.025,.010,-.357),
+             [(0,.121*width,.121),(.44,.118*width,.112),(1,.091*width,.102)],m["ink"])
+        limb("Tapered calf beneath the greave",shin,(0,0,.014),(side*.030,-.006,-.306),
+            [(0,.105*width,.112),(.39,.098*width,.107),(.75,.082,.091),(1,.076,.086)],m["ink"])
         cut("Angular knee guard",leg,(side*.02,-.068,-.377),(.115*width,.091,.132),m["rock"],2)
-        cut("Carved stony foot",leg,(side*.055,-.078,-.678),(.133*width,.194,.104),m["rock"],2)
+        cut("Carved stony foot",foot,(0,-.078,-.008),(.133*width,.194,.104),m["rock"],1)
         if boss:
-            block("Gold-washed foot plate",(side*.049,-.14,-.699),(.265,.142,.091),m["old gold"],leg,.036)
+            block("Gold-washed foot plate",(0,-.14,-.016),(.265,.142,.091),m["old gold"],foot,.036)
         if ident=="warden" and side<0:
             mirror=empty("Mirror shield mount",(side*.089,-.159,-.179),lower)
             obj=silhouette("Obsidian mirror shield with cut corners",[(0,-.455),(.269,-.266),(.305,.226),(.205,.368),
@@ -308,12 +320,13 @@ def humanoid_foe(item,m):
     cut("Angled obsidian skull",head,(0,.013,.188),(.220*width,.169,.195),m["ink"],2)
     cut("Engraved faceted faceplate",head,(0,-.112,.197),(.155*width,.099,.155),m["rock"],2)
     for side in (-1,1):
-        eye=cut("Slit of ember colour",head,(side*.087*width,-.196,.201),(.046,.017,.029),m["ember"],2)
-        eye.rotation_euler.y=side*.37
-        if not boss:
+        if not item.get("theme"):
+            eye=cut("Slit of ember colour",head,(side*.087*width,-.196,.201),(.046,.017,.029),m["ember"],1)
+            eye.rotation_euler.y=side*.37
+        if not boss and not item.get("theme"):
             curve("Rift helmet fin or horn",head,[(side*.149,.041,.291),
                  (side*.224,.093,.419),(side*.257,.127,.518)],[.080,.064,.009],m["accent"],6)
-    if ident=="titan":
+    if ident=="titan" and not item.get("theme"):
         for i in range(5):
             x=(i-2)*.094
             h=.542 if i==2 else .465-.022*abs(i-2)
@@ -321,7 +334,7 @@ def humanoid_foe(item,m):
                 m["old gold"],head,.034)
             p.rotation_euler.y=x*.68
             pin("Crown prism",(x,-.030,h-.028),.035,m["ember"],head)
-    elif ident=="golem":
+    elif ident=="golem" and not item.get("theme"):
         spikes(head,[(-.134,0,.346,.114,.207),(.024,.033,.346,.11,.291),(.144,.057,.318,.081,.208)],m,rng)
     return root, "titan" if boss else "spirit" if herald else "bulwark", "staff" if herald else "hammer" if heavy else "sword"
 
@@ -337,25 +350,30 @@ def enemy_model(item):
 
 
 def regional_features(root,region,family,crest,m):
-    """Give the force on each board a distinctive material, armour and crown silhouette."""
     parts={obj.name:obj for obj in root.children_recursive if obj.type=="EMPTY"}
     body,head=parts["Body"],parts["Head"]
-    motif=REGIONS[region][-1]
     if family=="wisp":
-        for sign in (-1,1):
-            x=sign*.157
-            cage=torus_mesh("Hewn metal frame balanced around the ghost", (x,.028,.012),
-                            .211,.018,m["edge"],parts["Mantle"],10,5,True)
-            cage.rotation_euler.z=sign*.31
-            leaf=cut("Coloured shard suspended in the open frame",head,(x,-.081,-.106),
-                     (.048,.051,.130),m["ember"],1)
-            leaf.rotation_euler.y=.51*sign
+        if region=="japan":
+            shell("Vermilion roof of the lantern",[(.162,.222,.155,0,0),(.236,.277,.202,0,0),
+                 (.320,.095,.090,0,0)],m["madder"],head,8,False)
+            for side in (-1,1):
+                curve("Hanging braided lantern thread",body,[(side*.179,-.130,.122),
+                      (side*.255,-.132,-.143),(side*.228,-.160,-.359)], [.022,.022,.008],m["ivory"],6)
+        elif region=="aegean":
+            for side in (-1,1):
+                curve("Swept nacre crest of the tide ghost",head,[(side*.12,.097,.043),
+                      (side*.252,.083,.178),(side*.326,.037,.336),(side*.299,-.072,.445)],
+                      [.096,.093,.067,.006],m["ivory"],7)
+        else:
+            for side in (-1,1):
+                curve("Ashen fins above the brazier",head,[(side*.12,.08,.176),
+                      (side*.209,.107,.288),(side*.165,.215,.482)], [.063,.073,.006],m["madder"],6)
         return
     if family=="moth":
         for i in range(4):
             x=(i-1.5)*.061
-            cut("Overlapping edge of the cedar moth thorax",body,(x,-.146,.106-abs(x)*.31),
-                 (.064,.048,.135),m["edge"] if i%2 else m["old gold"],1)
+            cut("Folded cream paper over the thorax",body,(x,-.146,.106-abs(x)*.31),
+                 (.064,.048,.135),m["ivory"] if i%2 else m["old gold"],1)
         emblem("moon",body,0.,-.195,.096,.34,m)
         return
     if family=="hound":
@@ -365,83 +383,22 @@ def regional_features(root,region,family,crest,m):
             def saddle(u,t):
                 x=(2*u-1)*width
                 return x,y+.101*t,.359-.035*tier-.137*(2*u-1)**2-.033*t
-            strips("Armoured jade or iron scale at the shoulder",body,[0,.14,.41,.65,.86,1.],
-                   [0,.17,.78,1.],saddle,[m["accent"],m["edge"]],lambda u,t:int(t>.81),
+            strips("Layered scale on the shoulders",body,[0,.14,.41,.65,.86,1.],
+                   [0,.17,.78,1.],saddle,[m["glaze"],m["edge"]],lambda u,t:int(t>.81),
                    lining=.018,smooth=False)
-        for side in (-1,1):
+        for side,label in ((-1,"Left"),(1,"Right")):
+            pale = m["ivory"] if region=="aegean" else m["madder"]
             curve("Swept brow spike protecting the eye",head,[(side*.151,-.316,.074),
                   (side*.217,-.226,.113),(side*.275,-.105,.197),(side*.301,-.022,.191)],
-                  [.036,.054,.041,.006],m["old gold"],7)
+                  [.045,.057,.047,.006],pale,7)
+            curve("Sculpted armoured jaw",head,[(side*.126,-.233,-.153),(side*.148,-.357,-.176),
+                 (side*.086,-.460,-.145)], [.076,.068,.022],m["glaze"],7)
+            for tooth in range(3):
+                y=-.255-.061*tooth
+                span("Ivory fang under the cheek",(side*.156,y,-.156),(side*.147,y-.015,-.222),
+                     .031-.005*tooth,m["ivory"],head,5,.005)
+            curve("Layered shock collar at the shoulder",parts[label+"Arm"],[(side*.05,-.151,.052),
+                  (side*.151,-.093,.164),(side*.155,.112,.212),(side*.086,.202,.112)],
+                  [.066,.102,.073,.008],pale,7)
         return
-
-    champion=crest>=5
-    scale=1.20 if champion else .90
-    for side in (-1,1):
-        def mask(x,z,depth):
-            return side*x*scale,-.251+.46*x-depth,z
-        cheek=[(.077,.253),(.163,.295),(.198,.221),(.163,.118),(.098,.070),(.080,.135)]
-        relief("Forged regional mask jaw with a painted bevel",head,cheek,mask,m["accent"],m["edge"],.023,.156)
-        if region=="japan":
-            curve("Pale oni tusk curving beside its mask",head,[(side*.083,-.271,.105),
-                  (side*.145,-.288,.084),(side*.180,-.258,.143),(side*.195,-.229,.195)],
-                  [.035,.040,.027,.004],m["claw"],7)
-        elif region=="aegean":
-            curve("Raised sea-beaten ridge curving off the brow",head,[(side*.091,-.229,.276),
-                  (side*.179,-.167,.342),(side*.241,-.082,.410),(side*.071,.014,.492)],
-                  [.028,.042,.038,.006],m["old gold"],7)
-        else:
-            cut("Recessed brow cast as a charred iron plate",head,(side*.102,-.215,.284),
-                 (.131,.063,.049),m["old gold"],1)
-        collar=[(.061,.269),(.143,.367),(.238,.341),(.291,.253),(.255,.175),(.154,.140)]
-        relief("Embossed regional plate across the chest",body,collar,
-               lambda x,z,d:(side*x*scale,-.274+.535*x-d,z),
-               m["rock"] if crest%2 else m["accent"],m["old gold"],.028,.095)
-    cut("Bright fracture at the heart of the breastplate",body,(0.,-.268,.241),
-         (.079,.036,.114),m["ember"],1)
-    emblem(motif,body,0.,-.305,.257,.45 if champion else .32,m)
-    if crest>=8:
-        if crest==8:
-            for slot in range(-2,3):
-                x=slot*.142
-                slab=block("Carved floating crown tablet",(x,.081,.581-.037*abs(slot)),
-                           (.120,.110,.328-.039*abs(slot)),m["old gold"],head,.032)
-                slab.rotation_euler.y=slot*.20
-                emblem(motif,head,x,.015,.631-.06*abs(slot),.14,m)
-            for side in (-1,1):
-                curve("Swept metal fins around the commander mask",head,
-                      [(side*.160,-.031,.152),(side*.302,.017,.239),
-                       (side*.382,.161,.364),(side*.303,.283,.514)],
-                      [.079,.087,.055,.008],m["accent"],7)
-        else:
-            root.scale.x*=1.12
-            root.scale.z*=1.08
-            cut("Open primal core in the broken crown",head,(0.,.046,.585),
-                 (.152,.115,.248),m["ember"],2)
-            for side in (-1,1):
-                curve("Long broken obsidian horn",head,
-                      [(side*.147,-.014,.327),(side*.278,.023,.422),
-                       (side*.425,.11,.560),(side*.396,.185,.719),(side*.302,.22,.762)],
-                      [.115,.103,.078,.046,.008],m["accent"],8)
-                for tier in range(4):
-                    x=side*(.202+.097*tier)
-                    shard=cut("Floating shards with luminous fractures",body,
-                              (x,.310+.032*tier,.165+.116*tier),
-                              (.11,.080,.230-.016*tier),m["rock"],1)
-                    shard.rotation_euler.y=side*.27*tier
-                    gems(body,(x,.215+.032*tier,.211+.116*tier),m,.03)
-    elif champion:
-        for tier in range(3):
-            h=.376+.12*tier
-            width=.247-.038*tier
-            for side in (-1,1):
-                curve("Craggy filigree rising into a sovereign crown",head,
-                      [(side*.08,.039,h-.060),(side*width,.028,h+.018),
-                       (side*(width+.078),.114,h+.123+(.054 if crest==7 else 0))],
-                      [.083-.011*tier,.064-.009*tier,.006],m["accent"] if tier%2 else m["old gold"],6)
-        if crest==7:
-            core=cut("Cut ore suspended at the centre of the crown",head,(0.,-.055,.636),
-                     (.106,.093,.214),m["ember"],1)
-            core.rotation_euler.z=.36
-            ring=torus_mesh("Broad faceted halo around the sovereign crown",(0,.095,.499),
-                            .345,.034,m["old gold"],head,12,5,True)
-            ring.rotation_euler.y=.18
+    finish_guards(root,region,family,crest,m)

@@ -12,7 +12,7 @@ use bevy::{
 use pantheon_simulation::Event;
 use std::f32::consts::{PI, TAU};
 
-use super::{Projectile, facing, p3};
+use super::{BatchedProjectile, Projectile, facing, p3};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum WeaponLook {
@@ -635,11 +635,11 @@ impl CombatFx {
 }
 
 pub fn animate(
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     mut fx: ResMut<CombatFx>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut canvas: Query<&mut Visibility, With<EffectCanvas>>,
-    missiles: Query<(&Projectile, &Transform)>,
+    missiles: Query<(&Projectile, &Transform, Option<&BatchedProjectile>)>,
 ) {
     let Ok(mut visible) = canvas.single_mut() else {
         return;
@@ -687,7 +687,7 @@ pub fn animate(
             opacity,
         );
     }
-    for (missile, pose) in &missiles {
+    for (missile, pose, batched) in &missiles {
         if now < missile.began || now >= missile.ends {
             continue;
         }
@@ -706,6 +706,15 @@ pub fn animate(
             pose.with_scale(Vec3::new(width, width, length)),
             0.88,
         );
+        if batched.is_some() {
+            draw(
+                Shape::Shard,
+                missile.look.pigment(),
+                true,
+                pose.with_scale(Vec3::new(width * 0.67, width * 0.67, width * 1.62)),
+                0.95,
+            );
+        }
     }
     if positions.is_empty() {
         *visible = Visibility::Hidden;

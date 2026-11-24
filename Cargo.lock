@@ -2785,6 +2785,7 @@ name = "pantheon-arena"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "flate2",
  "js-sys",
  "pantheon-simulation",
  "serde",

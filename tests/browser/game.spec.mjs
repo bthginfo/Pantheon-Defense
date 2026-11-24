@@ -45,7 +45,7 @@ test('mobile lobby, collection and account interface fit a narrow viewport', asy
   await expect(page.getByRole('heading',{name:'Akari',exact:true})).toBeVisible();
 });
 
-test('a phone can draw, place and fight fullscreen in the Bevy arena', async ({browser,baseURL}, testInfo) => {
+test('a phone can recruit, move troops, place a building and fight fullscreen', async ({browser,baseURL}, testInfo) => {
   const context = await browser.newContext({baseURL,viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2});
   const page = await context.newPage();
   const failures = [];
@@ -69,6 +69,8 @@ test('a phone can draw, place and fight fullscreen in the Bevy arena', async ({b
     await sound.tap();
     await expect(sound).toHaveAttribute('data-sound','playing');
     await page.getByRole('button',{name:/Partie starten/}).tap();
+    const recruitButton = page.getByRole('button',{name:/^Rekrutieren/});
+    await expect(recruitButton).toBeEnabled();
     const sheet = page.locator('#command-sheet');
     const stageBefore = await page.locator('#stage').boundingBox();
     await page.getByRole('button',{name:'Helden · Rezepte'}).tap();
@@ -78,19 +80,14 @@ test('a phone can draw, place and fight fullscreen in the Bevy arena', async ({b
     expect((await sheet.boundingBox()).height).toBeGreaterThan(420);
     expect((await page.locator('#stage').boundingBox()).height).toBe(stageBefore.height);
     await sheet.getByRole('button',{name:'Ansicht schließen'}).tap();
-    await page.getByRole('button',{name:/^Rekrutieren/}).tap();
-    await expect(page.locator('.field-context')).toContainText('Feld für die Einheit wählen');
-    await page.locator('[data-pane="recruit"]').tap();
-    await expect(page.locator('.reserve-card')).toHaveCount(1);
-    await expect(page.locator('.build-slot.filled')).toHaveCount(0);
-    await expect(page.locator('.reserve-card small')).toHaveText(/^(Common|Uncommon|Rare|Epic|Legendary)$/);
-    await sheet.getByRole('button',{name:'Ansicht schließen'}).tap();
-    const chosen = page.locator('[data-slot="19"]');
-    await expect(chosen).toHaveClass(/target/);
-    await chosen.tap();
-    await expect(chosen).toHaveClass(/filled/);
+    await recruitButton.tap();
+    const filled = page.locator('.build-slot.filled');
+    await expect(filled).toHaveCount(1);
     await expect(page.locator('[data-pane="recruit"] b')).toBeHidden();
-    const target = page.locator('[data-slot="23"]');
+    await expect(sheet).toBeHidden();
+    const initialSlot = Number(await filled.getAttribute('data-slot'));
+    const chosen = page.locator(`[data-slot="${initialSlot}"]`);
+    const target = page.locator(`[data-slot="${initialSlot === 23 ? 19 : 23}"]`);
     const sourceRect = await chosen.boundingBox();
     const targetRect = await target.boundingBox();
     const touch = await context.newCDPSession(page);
@@ -103,13 +100,16 @@ test('a phone can draw, place and fight fullscreen in the Bevy arena', async ({b
     await touch.detach();
     await expect(target).toHaveClass(/filled/);
     await expect(chosen).not.toHaveClass(/filled/);
-    await page.locator('.field-context-open').tap();
+    expect((await page.locator('#stage').boundingBox()).height).toBe(stageBefore.height);
     await page.getByRole('button',{name:'Verschieben',exact:true}).tap();
     await chosen.tap();
     await expect(chosen).toHaveClass(/filled/);
     await page.getByRole('button',{name:'Bauen',exact:true}).tap();
     await page.locator('.building-card').filter({hasText:'Ägäis-Balliste'}).getByRole('button',{name:/Bauen/}).tap();
-    await page.locator('[data-slot="16"]').tap();
+    await expect(sheet).toBeHidden();
+    await expect(page.locator('.field-context')).toContainText('Freien Bauplatz wählen');
+    await expect(filled).toHaveCount(1);
+    await page.locator(`[data-slot="${initialSlot === 16 ? 18 : 16}"]`).tap();
     await page.locator('.field-context-open').tap();
     await expect(page.locator('.formation-summary')).toHaveText(/Ägäis-Balliste/);
     await expect(page.getByRole('button',{name:'Verschieben',exact:true})).toHaveCount(0);
@@ -178,10 +178,16 @@ test('an invitation grants only the chosen account and both browsers see the sam
     expect(drawn.status()).toBe(200);
     const duplicate = await matchAction(guestContext,id,{type:'recruit'},token);
     expect(duplicate.status()).toBe(200);
-    const reserve = (await duplicate.json()).game.players[1].reserve;
-    expect(reserve.length).toBe(1);
-    expect((await matchAction(guestContext,id,{type:'deploy',id:reserve[0].id,slot:19})).status()).toBe(409);
-    expect((await matchAction(guestContext,id,{type:'deploy',id:reserve[0].id,slot:14})).status()).toBe(200);
+    const direct = (await duplicate.json()).game;
+    const recruits = direct.pieces.filter(piece => piece.owner === 1);
+    expect(recruits).toHaveLength(1);
+    const [recruit] = recruits;
+    expect(recruit.slot).toBeLessThan(16);
+    expect(direct.players[1].reserve).toHaveLength(0);
+    expect((await matchAction(guestContext,id,{type:'move',id:recruit.id,slot:19})).status()).toBe(409);
+    const targetSlot = recruit.slot === 14 ? 13 : 14;
+    expect((await matchAction(guestContext,id,{type:'move',id:recruit.id,slot:targetSlot})).status()).toBe(200);
+    await expect(host.locator(`[data-slot="${targetSlot}"]`)).toHaveClass(/filled/,{timeout:25_000});
     await expect(host.locator('[data-slot="18"]')).toHaveAttribute('aria-label',/Ägäis-Balliste/,{timeout:25_000});
     await expect(guest.locator('[data-slot="18"]')).toHaveAttribute('aria-label',/Ägäis-Balliste/,{timeout:25_000});
     await guest.reload();

@@ -72,6 +72,14 @@
   background:#172d2d; border:1px solid #a98d6426; border-radius:7px; padding:2px 6px;
   color:#eadcc2; text-align:left;
 }
+.field-context-actions {
+  display:flex; align-items:center; gap:6px; padding:3px;
+  border:1px solid #ad895b; border-radius:8px; background:#192d2dee;
+  box-shadow:0 5px 13px #09161bb0;
+}
+.field-context-actions .field-context-open { flex:1; min-width:0; border-color:transparent; }
+.field-context-actions .command-action { flex-shrink:0; max-width:45%; }
+.field-context-actions strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .field-context-open strong,.field-context-target strong { display:block; font-size:.84rem; font-weight:750; }
 .field-context-open small,.field-context-target small { display:block; color:#d3bd94; font-size:.72rem; }
 .field-context-open .portrait,.field-context-target .portrait { width:34px; height:39px; object-fit:contain; }
@@ -234,15 +242,15 @@
     display:block; height:auto; max-height:none; overflow:visible; padding:0; border:0;
     background:none; box-shadow:none; z-index:5; --sheet-frame:252px;
   }
-  .orders.live-deck.has-context { --context-cover:51px; }
   .command-dock { gap:5px; padding:6px; border-radius:9px; }
+  .field-context { position:absolute; inset:auto 0 calc(100% + 4px); }
   .command-sheet:not([hidden]) + .command-dock .field-context { visibility:hidden; }
   .command-scrim {
     display:block; position:absolute; z-index:1; inset:-100dvh 0 100%; margin:0; border:0;
     background:linear-gradient(transparent 42%,#07191969); border-radius:0;
   }
   .command-sheet {
-    position:absolute; z-index:5; inset:auto 0 calc(100% + 4px - var(--context-cover,0px));
+    position:absolute; z-index:5; inset:auto 0 calc(100% + 4px);
     height:min(590px,calc(100dvh - var(--sheet-frame) - env(safe-area-inset-top) - env(safe-area-inset-bottom)));
     box-shadow:0 8px 22px #0a1818cd;
   }
@@ -281,6 +289,7 @@
 }
 @media (max-height:620px) and (orientation:landscape) and (pointer:coarse) {
   .orders.live-deck { display:grid; height:100%; max-height:100%; }
+  .field-context { position:static; }
   .command-sheet:not([hidden]) + .command-dock .field-context { visibility:visible; }
   .command-scrim { display:none; }
   .command-sheet,.command-sheet[data-pane="piece"] {

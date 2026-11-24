@@ -19,6 +19,7 @@ from commanders import COMMANDERS, commander
 from commander_motion import commander_clips
 from commander_finish import SURFACES, add_detail_uv, apply_detail
 from commander_paint import PROFILES, brush_colour
+from beast_motion import ground_walk, hound_trot
 
 TAU = math.tau
 
@@ -219,15 +220,13 @@ def idle_stance(item, weapon):
         stance["LeftHand"]=(.34,.0,.04)
     return stance
 
-def animate(arm,shape,weapon,item):
+def animate(arm,shape,weapon,item,enemy=False):
     bones=arm.pose.bones
     stance=idle_stance(item,weapon) if item.get("kind") in ("troop","hero") else {}
     for bone in bones:
         bone.rotation_mode="QUATERNION"
     def learn(name,duration,frames):
-        if shape=="hound":
-            frames=bound_hound(name,frames)
-        elif shape=="moth":
+        if shape=="moth":
             frames=flutter(name,frames,duration)
         elif shape=="wisp":
             frames=float_wisp(name,frames,duration)
@@ -280,7 +279,13 @@ def animate(arm,shape,weapon,item):
             values["Body"]=pose((0,0,.110+wave*.072),(.026,0,.09*wave))
             values["LeftArm"]=pose(rotation=(-.12+wave*.19,-.35*wave,.26))
             values["RightArm"]=pose(rotation=(-.12+wave*.19,.35*wave,-.26))
-    learn("Walk",33,walk)
+    if shape=="hound":
+        duration,walk=hound_trot(pose)
+    elif enemy and not airy and shape not in ("moth","wisp"):
+        duration,walk=ground_walk(item,pose)
+    else:
+        duration=33
+    learn("Walk",duration,walk)
     learn("Idle",61,{
         15:{"Body":pose((0,0,.022),(.025,.006,.022)),"Mantle":pose(rotation=(.06,.02,.06))},
         30:{"Body":pose((0,0,.037 if not airy else .11),(.032,.0,-.019)),
@@ -350,27 +355,11 @@ def animate(arm,shape,weapon,item):
                          26:{"RightArm":pose(rotation=(-1.1,.33,-.16)),"LeftArm":pose(rotation=(-1.24,-.40,-.16)),
                              "Figure":pose((0,0,.13),(0,0,-.18))},39:{"Figure":pose((0,0,.04))}})
 
-def bound_hound(name,frames):
-    if name=="Walk":
-        for frame,posture in frames.items():
-            phase=math.sin((frame-1)*TAU/32)
-            posture.update({
-                "Body":pose((0,0,abs(phase)*.073),(.09*phase,0,0)),
-                "Head":pose(rotation=(-.12*phase,0,0)),
-                "LeftLeg":pose(rotation=(.64*phase,0,0)),
-                "RightLeg":pose(rotation=(-.64*phase,0,0)),
-                "LeftArm":pose(rotation=(-.64*phase,0,0)),
-                "RightArm":pose(rotation=(.64*phase,0,0)),
-                "Mantle":pose(rotation=(.17*phase,0,-.27*phase)),
-            })
-    return frames
-
-
 def flutter(name,frames,duration):
     if name not in ("Walk","Idle","Cast","Spawn"):
         return frames
-    for frame in range(1,duration,4):
-        phase=math.sin((frame-1)*TAU/16)
+    for frame in sorted({*range(1,duration,2),duration}):
+        phase=math.cos((frame-1)*2*TAU/(duration-1))
         pose_frame=frames.setdefault(frame,{})
         pose_frame.update({
             "LeftArm":pose(rotation=(.12+.17*phase,.86*phase,0)),
@@ -383,11 +372,12 @@ def flutter(name,frames,duration):
 def float_wisp(name,frames,duration):
     if name not in ("Walk","Idle","Cast","Spawn"):
         return frames
-    for frame in range(1,duration,5):
-        phase=math.sin((frame-1)*TAU/50)
+    for frame in sorted({*range(1,duration,4),duration}):
+        angle=(frame-1)*TAU/(duration-1)
+        phase=math.sin(angle)
         key=frames.setdefault(frame,{})
         key["Body"]=pose((0,0,.12*phase),(0,0,.11*phase))
-        key["Mantle"]=pose(rotation=(.16*phase,phase*.77,(frame-1)*TAU/60))
+        key["Mantle"]=pose(rotation=(.16*phase,phase*.55,angle))
     return frames
 
 
@@ -424,7 +414,7 @@ def furnish(item, enemy=False, review_directory=None, output=None):
     else:
         root,shape,weapon=humanoid(item)
     arm,skin=bake_skin(root,item,textured_material=True)
-    animate(arm,shape,weapon,item)
+    animate(arm,shape,weapon,item,enemy)
     significant=item["id"] in ("thekla","marcus","akari")
     family=item.get("archetype",item["id"])
     height=1.37 if family=="titan" else 1.14 if family=="golem" else .97

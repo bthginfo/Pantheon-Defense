@@ -11,10 +11,10 @@ Rom und Japan bringen 36 Truppen, 24 Helden und neun Gebäude aufs Brett.
    und Spielvariante. Bei **Zu zweit** gibst du den Rufnamen des registrierten
    Mitspielers ein. Kopiere den Einladungslink im Spielraum und teile ihn mit
    der eingeladenen Person.
-2. Der Gastgeber startet. Mit **Rekrutieren** kommt eine neue Einheitenart in
-   die Reserve. Wähle ihr erstes Feld selbst. Weitere Exemplare derselben Art
-   und Seltenheit füllen den Trupp automatisch bis drei. Die nächste Kopie
-   beginnt auf einem freien Feld einen weiteren Trupp.
+2. Der Gastgeber startet. **Rekrutieren** setzt die Einheit auf ein zufälliges
+   freies Feld und markiert sie kurz. Gleiche Einheiten derselben Seltenheit
+   füllen zuerst ihren Trupp bis drei. Ist kein passendes Feld frei, wartet die
+   Einheit in der Reserve. Im Koop rekrutierst du auf deiner eigenen Hälfte.
 3. Tippe einen Trupp aus drei Einheiten an und wähle **Verschmelzen**, um auf
    demselben Feld eine Einheit der nächsten Seltenheit zu bekommen. Die Stufen sind Common,
    Uncommon, Rare, Epic und Legendary.
@@ -102,8 +102,9 @@ verwenden Armaturen. Studiolichter und Kameras gehören zu den Blender-Szenen
 und werden für die Porträts verwendet.
 
 Die Handyansicht lädt vereinfachte 3D-Meshes aus denselben Blender-Exporten.
-Die Texturen und Animationen werden dabei übernommen. `npm run art:mobile`
-erzeugt diese Dateien nach einer Änderung an den Originalmodellen neu.
+Gleiche Figuren teilen sich Mesh, Bemalung und vorberechnete Gelenkposen.
+`npm run art:mobile` aktualisiert die vereinfachten GLB-Dateien und die
+Bevy-Pakete mit diesen Posen. `npm run art:poses` baut nur die Bevy-Pakete.
 
 Mit Blender 4.3 und FFmpeg lassen sich die Assets erneut erzeugen.
 

@@ -194,13 +194,23 @@ function detail(piece, game, actors) {
     </div></article>`;
 }
 
-function fieldContext(pending, piece, player, actors) {
+function fieldContext(pending, piece, player, actors, game) {
   if (!pending && !piece) return '';
   const recruit = pending?.type==='deploy' && player.reserve.find(unit => unit.id===pending.id);
   const actor = actors.get(recruit?.actor ?? pending?.actor ?? piece?.actor);
   if (!pending) {
-    return `<button class="field-context-open" data-pane="piece" aria-controls="command-sheet">${portrait(actor.id)}
-      <span><strong>${esc(actor.name)}</strong><small>${piece.stack===3 && piece.tier<5 ? 'Verschmelzen möglich' : 'Befehle'}</small></span><span aria-hidden="true">›</span></button>`;
+    const canMerge = actor.kind==='troop' && piece.stack===3 && piece.tier<5;
+    const canCast = actor.kind==='hero' && game.phase==='combat' && game.tick>=piece.cast_ready;
+    const quick = canMerge ? ['merge','Verschmelzen'] : canCast ? ['cast',actor.role]
+      : actor.kind==='building' ? null : ['move','Verschieben'];
+    const detail = actor.kind==='troop' ? `${rarities[piece.tier]}${piece.stack>1 ? ` · ×${piece.stack}` : ''}`
+      : `${actor.kind==='hero' ? 'Held' : 'Gebäude'} · Stufe ${piece.rank}`;
+    return `<div class="field-context-actions">
+      <button class="field-context-open" data-pane="piece" aria-controls="command-sheet"
+        aria-label="Befehle für ${esc(actor.name)}">${portrait(actor.id)}
+        <span><strong>${esc(actor.name)}</strong><small>${detail}</small></span><span aria-hidden="true">›</span></button>
+      ${quick ? `<button class="command-action ${quick[0]}" data-order="${quick[0]}">${esc(quick[1])}</button>` : ''}
+    </div>`;
   }
   const prompts = { deploy:'Feld für die Einheit wählen', place:'Freien Bauplatz wählen', move:'Zielfeld wählen', cast:'Angriffsziel wählen' };
   return `<div class="field-context-target">${actor ? portrait(actor.id) : icon('recruit')}
@@ -270,9 +280,8 @@ export function updateCircuitOrders(orders, {room, selected, pending, menuPane, 
   remaining.hidden = !player.reserve.length;
   setText(remaining, player.reserve.length);
   const context = orders.querySelector('.field-context');
-  const selection = fieldContext(pending, piece, player, actors);
+  const selection = fieldContext(pending, piece, player, actors, game);
   context.hidden = !selection;
-  orders.classList.toggle('has-context', Boolean(selection));
   updatePanel(context, selection);
 
   const sheet = orders.querySelector('.command-sheet');

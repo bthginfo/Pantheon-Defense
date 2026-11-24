@@ -25,6 +25,7 @@ use wasm_bindgen::prelude::*;
 
 mod circuit_art;
 mod combat_fx;
+mod crowd;
 mod scenery;
 use combat_fx::{CombatFx, WeaponLook};
 use scenery::{Palette, Scenery};
@@ -86,7 +87,7 @@ pub fn play_arena(mobile: bool) {
                 pull_game,
                 orient_camera,
                 animate_figures,
-                circuit_art::update_contact_shadows,
+                crowd::draw,
                 animate_projectiles,
                 combat_fx::animate,
                 play_clips,
@@ -102,6 +103,7 @@ pub fn play_arena(mobile: bool) {
                 .after(TransformSystem::TransformPropagate)
                 .after(CameraUpdateSystem),
         );
+    crowd::install(&mut app);
     app.run();
 }
 
@@ -201,6 +203,7 @@ struct Figure {
     members: Vec<Entity>,
     yaw: f32,
     enemy: bool,
+    cached: bool,
     glide: Option<Glide>,
     clip_until: f64,
     clip: &'static str,
@@ -208,6 +211,7 @@ struct Figure {
     hit_at: Option<f64>,
     players: Vec<Entity>,
     active_clip: &'static str,
+    clip_started: f64,
 }
 
 #[derive(Component)]
@@ -226,9 +230,56 @@ struct Glide {
 
 struct Stride {
     lane: usize,
-    progress: f32,
+    reported: f32,
+    displayed: f32,
+    correction: f32,
     speed: f32,
     time: f64,
+}
+
+impl Stride {
+    fn new(lane: usize, progress: f32, speed: f32, time: f64) -> Self {
+        Self {
+            lane,
+            reported: progress,
+            displayed: progress,
+            correction: 0.,
+            speed,
+            time,
+        }
+    }
+
+    fn step(&mut self, now: f64) -> f32 {
+        let elapsed = (now - self.time).max(0.) as f32;
+        let target =
+            self.reported + elapsed.min(2.6) * self.speed + self.correction * (-elapsed * 6.).exp();
+        self.displayed = self.displayed.max(target);
+        self.displayed
+    }
+
+    fn refresh(&mut self, lane: usize, progress: f32, speed: f32, now: f64) {
+        let shown = self.step(now);
+        if lane != self.lane || (shown - progress).abs() > 4. {
+            *self = Self::new(lane, progress, speed, now);
+        } else {
+            self.reported = progress;
+            self.correction = shown - progress;
+            self.speed = speed;
+            self.time = now;
+        }
+    }
+
+    fn gait_phase(&self, family: &str, now: f64, seconds: f32) -> f32 {
+        let cycle = match family {
+            "moth" | "wisp" => return ((now as f32 + self.displayed * 0.16) / seconds).fract(),
+            "hound" => 1.46,
+            "titan" => 1.55,
+            "golem" => 1.37,
+            "brute" | "warden" => 1.18,
+            _ => 1.02,
+        };
+        (self.displayed / cycle).rem_euclid(1.)
+    }
 }
 
 #[derive(Default)]
@@ -247,6 +298,9 @@ struct Projectile {
     look: WeaponLook,
 }
 
+#[derive(Component)]
+struct BatchedProjectile;
+
 struct VisibleShot {
     entity: Option<Entity>,
     arrives: f64,
@@ -261,6 +315,7 @@ struct Shared {
     rays: [Handle<StandardMaterial>; 6],
     ring: Handle<StandardMaterial>,
     team: [Handle<StandardMaterial>; 2],
+    shadow: circuit_art::ContactShadow,
 }
 
 fn p3(point: Point, y: f32) -> Vec3 {
@@ -313,6 +368,7 @@ fn setup(
         }),
         team: [Color::srgb(0.28, 0.86, 0.83), Color::srgb(0.96, 0.53, 0.39)]
             .map(|color| mats.add(simple(color, 0.28))),
+        shadow: circuit_art::ContactShadow::new(&mut meshes, &mut mats),
     };
 
     commands.spawn((
@@ -369,21 +425,15 @@ fn setup(
         ring(shared.line.clone(), shared.rays[5].clone()),
     ));
 
-    for enemy in sim::catalog().enemies.iter().take(3) {
-        arena.assets.insert(
-            enemy.id.clone(),
-            asset_server.load(model_path(&enemy.id, graphics.mobile)),
-        );
-    }
-    for id in ["fx_bolt", "fx_sun", "fx_frost", "fx_spark"] {
-        arena
-            .assets
-            .insert(id.into(), asset_server.load(format!("models/{id}.glb")));
+    if !graphics.mobile {
+        for id in ["fx_bolt", "fx_sun", "fx_frost", "fx_spark"] {
+            arena
+                .assets
+                .insert(id.into(), asset_server.load(format!("models/{id}.glb")));
+        }
     }
     let combat_fx = CombatFx::new(&mut commands, &mut meshes, &mut mats);
-    let contact_shadows = circuit_art::ContactShadows::new(&mut commands, &mut meshes, &mut mats);
     commands.insert_resource(combat_fx);
-    commands.insert_resource(contact_shadows);
     commands.insert_resource(shared);
 }
 
@@ -395,16 +445,18 @@ fn pull_game(
     mut figures: Query<(&mut Figure, &Transform)>,
     mut projectiles: Query<&mut Projectile>,
     mut combat_fx: ResMut<CombatFx>,
+    mut crowd: ResMut<crowd::Crowd>,
     graphics: Res<Graphics>,
     asset_server: Res<AssetServer>,
     gltfs: Res<Assets<Gltf>>,
     shared: Res<Shared>,
-    time: Res<Time>,
+    time: Res<Time<Real>>,
 ) {
     let Some((room, game)) = MAIL.with(|mail| mail.borrow_mut().game.take()) else {
         return;
     };
     let now = time.elapsed_secs_f64();
+    let cached = graphics.mobile && game.on_circuit();
     let fresh_room = arena.room != room;
     if fresh_room {
         arena.camera_configured = false;
@@ -441,15 +493,19 @@ fn pull_game(
         arena
             .assets
             .retain(|id, _| sim::actor(id).is_none_or(|actor| actor.theme == game.theme));
-        for actor in sim::catalog()
-            .actors
-            .iter()
-            .filter(|a| a.theme == game.theme && a.kind == "troop" && a.rarity == 1)
-        {
-            arena
-                .assets
-                .entry(actor.id.clone())
-                .or_insert_with(|| asset_server.load(format!("models/{}.glb", actor.id)));
+        if cached {
+            crowd.preload(&asset_server, &game.theme);
+        } else {
+            for actor in sim::catalog()
+                .actors
+                .iter()
+                .filter(|a| a.theme == game.theme && a.kind == "troop" && a.rarity == 1)
+            {
+                arena
+                    .assets
+                    .entry(actor.id.clone())
+                    .or_insert_with(|| asset_server.load(model_path(&actor.id, graphics.mobile)));
+            }
         }
         arena.rule_version = game.rule_version;
         arena.camera_configured = false;
@@ -458,6 +514,11 @@ fn pull_game(
     }
 
     arena.pressure = game.enemies.len();
+    if cached {
+        for recruit in game.players.iter().flat_map(|p| &p.reserve) {
+            crowd.request(&asset_server, &recruit.actor);
+        }
+    }
     let tiles = game.tiles();
     let recent = |effect: &&sim::Event| effect.tick + 22 >= game.tick;
     let deaths: HashSet<_> = game
@@ -491,7 +552,8 @@ fn pull_game(
         if let Some(entity) = arena.figures.get(&piece.id) {
             if let Ok((mut figure, pose)) = figures.get_mut(*entity) {
                 if figure.stack != piece.stack {
-                    let scene = figure_scene(&asset_server, &gltfs, &arena, &piece.actor);
+                    let scene = (!cached)
+                        .then(|| figure_scene(&asset_server, &gltfs, &arena, &piece.actor));
                     set_formation(&mut commands, *entity, &mut figure, scene, piece.stack);
                 }
                 if figure.target.distance(position) > 0.3 {
@@ -506,10 +568,13 @@ fn pull_game(
                 }
             }
         } else {
-            arena
-                .assets
-                .entry(piece.actor.clone())
-                .or_insert_with(|| asset_server.load(model_path(&piece.actor, graphics.mobile)));
+            if cached {
+                crowd.request(&asset_server, &piece.actor);
+            } else {
+                arena.assets.entry(piece.actor.clone()).or_insert_with(|| {
+                    asset_server.load(model_path(&piece.actor, graphics.mobile))
+                });
+            }
             let entity = spawn_figure(
                 &mut commands,
                 &asset_server,
@@ -524,6 +589,7 @@ fn pull_game(
                 },
                 false,
                 piece.stack,
+                cached,
             );
             let appear = if piece.tier > 1 { "Ascend" } else { "Spawn" };
             commands
@@ -584,23 +650,27 @@ fn pull_game(
         {
             speed *= 1.33;
         }
-        let stride = Stride {
-            lane: enemy.lane,
-            progress: enemy.progress,
-            speed,
-            time: now,
-        };
+        if game.phase != sim::Phase::Combat {
+            speed = 0.;
+        }
         if let Some(entity) = arena.figures.get(&enemy.id) {
             if let Ok((mut figure, _)) = figures.get_mut(*entity) {
                 figure.target = position;
-                figure.yaw = yaw;
-                figure.stride = Some(stride);
+                if let Some(stride) = &mut figure.stride {
+                    stride.refresh(enemy.lane, enemy.progress, speed, now);
+                } else {
+                    figure.stride = Some(Stride::new(enemy.lane, enemy.progress, speed, now));
+                }
             }
         } else {
-            arena
-                .assets
-                .entry(enemy.kind.clone())
-                .or_insert_with(|| asset_server.load(model_path(&enemy.kind, graphics.mobile)));
+            if cached {
+                crowd.request(&asset_server, &enemy.kind);
+            } else {
+                arena
+                    .assets
+                    .entry(enemy.kind.clone())
+                    .or_insert_with(|| asset_server.load(model_path(&enemy.kind, graphics.mobile)));
+            }
             let entity = spawn_figure(
                 &mut commands,
                 &asset_server,
@@ -611,6 +681,7 @@ fn pull_game(
                 yaw,
                 true,
                 1,
+                cached,
             );
             if game.on_circuit() {
                 let size = if family == "hound" {
@@ -620,6 +691,7 @@ fn pull_game(
                 };
                 circuit_art::footwork(&mut commands, &shared, entity, -0.010, size, None);
             }
+            let stride = Stride::new(enemy.lane, enemy.progress, speed, now);
             commands
                 .entity(entity)
                 .queue(move |mut entity: EntityWorldMut| {
@@ -685,22 +757,26 @@ fn pull_game(
         let began = now + 0.025 * (stagger % 6) as f64;
         stagger += 1;
         let arrives = began + remaining.max(look.minimum_flight()).min(0.68);
-        let scene = figure_scene(&asset_server, &gltfs, &arena, look.model());
-        let entity = commands
-            .spawn((
-                SceneRoot(scene),
-                Transform::from_translation(start).with_scale(Vec3::splat(0.001)),
-                NotShadowCaster,
-                Projectile {
-                    from: start,
-                    to: target,
-                    began,
-                    ends: arrives,
-                    arc: look.arc(),
-                    look,
-                },
-            ))
-            .id();
+        let mut projectile = commands.spawn((
+            Transform::from_translation(start).with_scale(Vec3::splat(0.001)),
+            NotShadowCaster,
+            Projectile {
+                from: start,
+                to: target,
+                began,
+                ends: arrives,
+                arc: look.arc(),
+                look,
+            },
+        ));
+        if !cached {
+            let scene = figure_scene(&asset_server, &gltfs, &arena, look.model());
+            projectile.insert(SceneRoot(scene));
+        }
+        let entity = projectile.id();
+        if cached {
+            projectile.insert(BatchedProjectile);
+        }
         arena.shots.insert(
             shot.id,
             VisibleShot {
@@ -783,9 +859,9 @@ fn pull_game(
                     .fold(now, f64::max);
                 let position = p3(effect.pos, 0.36);
                 let fall = if let Some(entity) = arena.figures.get(&effect.source) {
-                    if let Ok((mut figure, _)) = figures.get_mut(*entity) {
+                    if let Ok((mut figure, pose)) = figures.get_mut(*entity) {
                         let begins = at.max(figure.hit_at.unwrap_or(now));
-                        figure.target = position;
+                        figure.target = pose.translation;
                         figure.stride = None;
                         figure.fall = Some(Fall {
                             begins,
@@ -796,9 +872,13 @@ fn pull_game(
                         at
                     }
                 } else {
-                    arena.assets.entry(effect.actor.clone()).or_insert_with(|| {
-                        asset_server.load(format!("models/{}.glb", effect.actor))
-                    });
+                    if cached {
+                        crowd.request(&asset_server, &effect.actor);
+                    } else {
+                        arena.assets.entry(effect.actor.clone()).or_insert_with(|| {
+                            asset_server.load(model_path(&effect.actor, graphics.mobile))
+                        });
+                    }
                     let entity = spawn_figure(
                         &mut commands,
                         &asset_server,
@@ -809,6 +889,7 @@ fn pull_game(
                         0.,
                         true,
                         1,
+                        cached,
                     );
                     commands
                         .entity(entity)
@@ -859,6 +940,7 @@ fn spawn_figure(
     yaw: f32,
     enemy: bool,
     stack: u8,
+    cached: bool,
 ) -> Entity {
     let size = if arena.rule_version >= sim::CIRCUIT_RULES {
         match sim::actor(id).map(|actor| actor.kind.as_str()) {
@@ -869,7 +951,7 @@ fn spawn_figure(
     } else {
         1.0
     };
-    let scene = figure_scene(assets, gltfs, arena, id);
+    let scene = (!cached).then(|| figure_scene(assets, gltfs, arena, id));
     let entity = commands
         .spawn((
             Transform::from_translation(position)
@@ -886,6 +968,7 @@ fn spawn_figure(
         members: Vec::new(),
         yaw,
         enemy,
+        cached,
         glide: None,
         clip_until: 0.,
         clip: "Idle",
@@ -893,6 +976,7 @@ fn spawn_figure(
         hit_at: None,
         players: Vec::new(),
         active_clip: "",
+        clip_started: 0.,
     };
     set_formation(commands, entity, &mut figure, scene, stack);
     commands.entity(entity).insert(figure);
@@ -918,7 +1002,7 @@ fn set_formation(
     commands: &mut Commands,
     group: Entity,
     figure: &mut Figure,
-    scene: Handle<Scene>,
+    scene: Option<Handle<Scene>>,
     stack: u8,
 ) {
     figure.stack = stack.clamp(1, 3);
@@ -930,20 +1014,19 @@ fn set_formation(
         figure.active_clip = "";
     }
     for &position in &positions[figure.members.len()..] {
-        let member = commands
-            .spawn((
-                ChildOf(group),
-                FormationMember(group),
-                SceneRoot(scene.clone()),
-                Transform::from_translation(position).with_scale(Vec3::splat(if stack > 1 {
-                    0.78
-                } else {
-                    1.
-                })),
-            ))
-            .observe(find_player)
-            .id();
-        figure.members.push(member);
+        let mut member = commands.spawn((
+            ChildOf(group),
+            FormationMember(group),
+            Transform::from_translation(position).with_scale(Vec3::splat(if stack > 1 {
+                0.78
+            } else {
+                1.
+            })),
+        ));
+        if let Some(scene) = &scene {
+            member.insert(SceneRoot(scene.clone())).observe(find_player);
+        }
+        figure.members.push(member.id());
     }
 }
 
@@ -1002,6 +1085,20 @@ fn find_player(
     figure.active_clip = "";
 }
 
+fn desired_clip(figure: &Figure, now: f64) -> &'static str {
+    if figure.fall.as_ref().is_some_and(|fall| now >= fall.begins) {
+        "Death"
+    } else if figure.glide.is_some() && figure.clip != "Cast" {
+        "Walk"
+    } else if figure.clip_until > now {
+        figure.clip
+    } else if figure.enemy || figure.glide.is_some() {
+        "Walk"
+    } else {
+        "Idle"
+    }
+}
+
 fn play_clips(
     mut commands: Commands,
     mut arena: ResMut<Arena>,
@@ -1009,24 +1106,14 @@ fn play_clips(
     gltf: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    time: Res<Time>,
+    time: Res<Time<Real>>,
 ) {
     let time = time.elapsed_secs_f64();
     for mut figure in &mut figures {
         if figure.players.is_empty() {
             continue;
         }
-        let desired = if figure.fall.as_ref().is_some_and(|fall| time >= fall.begins) {
-            "Death"
-        } else if figure.glide.is_some() && figure.clip != "Cast" {
-            "Walk"
-        } else if figure.clip_until > time {
-            figure.clip
-        } else if figure.enemy || figure.glide.is_some() {
-            "Walk"
-        } else {
-            "Idle"
-        };
+        let desired = desired_clip(&figure, time);
         if desired == figure.active_clip {
             continue;
         }
@@ -1128,10 +1215,10 @@ fn animate_figures(
     mut arena: ResMut<Arena>,
     mut figures: Query<(&mut Figure, &mut Transform)>,
     mut members: Query<&mut Transform, (With<FormationMember>, Without<Figure>)>,
-    time: Res<Time>,
+    time: Res<Time<Real>>,
 ) {
     let now = time.elapsed_secs_f64();
-    let delta = time.delta_secs().min(0.08);
+    let delta = time.delta_secs().min(0.25);
     let theme = arena.theme.clone();
     let rules = arena.rule_version;
     arena.figures.retain(|_, entity| {
@@ -1148,44 +1235,52 @@ fn animate_figures(
                 }
             }
             let blend = 1. - (-delta * if figure.enemy { 16. } else { 13. }).exp();
-            if let Some(track) = &figure.stride {
-                let offset = ((now - track.time) as f32).clamp(0., 0.78) * track.speed;
-                let progress = track.progress + offset;
-                let pos = p3(sim::route_point(rules, &theme, track.lane, progress), 0.36);
-                let ahead = p3(
-                    sim::route_point(rules, &theme, track.lane, progress + 0.24),
-                    0.36,
-                );
-                if (ahead - pos).length_squared() > 0.004 {
-                    figure.yaw = facing(ahead - pos);
+            let translation = if let Some(track) = &mut figure.stride {
+                let progress = track.step(now);
+                let route =
+                    |distance| p3(sim::route_point(rules, &theme, track.lane, distance), 0.36);
+                let center = route(progress);
+                let before = route((progress - 0.30).max(0.));
+                let after = route(progress + 0.30);
+                if (after - before).length_squared() > 0.004 {
+                    figure.yaw = facing(after - before);
                 }
-                trans.translation = trans.translation.lerp(pos, blend);
+                (center * 4. + before + after) / 6.
             } else if let Some(glide) = &figure.glide {
                 let t = ((now - glide.began) / glide.seconds).clamp(0., 1.) as f32;
-                trans.translation = glide.from.lerp(figure.target, 1. - (1. - t).powi(2));
+                let position = glide.from.lerp(figure.target, 1. - (1. - t).powi(2));
                 if t >= 1. {
                     figure.glide = None;
                 }
+                position
             } else {
-                trans.translation = figure.target;
+                figure.target
+            };
+            if trans.translation != translation {
+                trans.translation = translation;
             }
             for (&entity, &position) in figure.members.iter().zip(formation_layout(figure.stack)) {
                 let Ok(mut pose) = members.get_mut(entity) else {
                     continue;
                 };
-                pose.translation = pose.translation.lerp(position, blend);
-                let scale = if figure.stack > 1 { 0.78 } else { 1. };
-                pose.scale = pose.scale.lerp(Vec3::splat(scale), blend);
+                if pose.translation.distance_squared(position) > 0.000001 {
+                    pose.translation = pose.translation.lerp(position, blend);
+                }
+                let scale = Vec3::splat(if figure.stack > 1 { 0.78 } else { 1. });
+                if pose.scale.distance_squared(scale) > 0.000001 {
+                    pose.scale = pose.scale.lerp(scale, blend);
+                }
             }
-            trans.rotation = trans
-                .rotation
-                .slerp(Quat::from_rotation_y(figure.yaw), (delta * 11.).min(1.0));
+            let target = Quat::from_rotation_y(figure.yaw);
+            if trans.rotation.dot(target).abs() < 0.999_999 {
+                trans.rotation = trans.rotation.slerp(target, 1. - (-delta * 10.).exp());
+            }
         }
         true
     });
 }
 
-fn animate_projectiles(time: Res<Time>, mut query: Query<(&Projectile, &mut Transform)>) {
+fn animate_projectiles(time: Res<Time<Real>>, mut query: Query<(&Projectile, &mut Transform)>) {
     let now = time.elapsed_secs_f64();
     for (shot, mut transform) in &mut query {
         if now < shot.began || now >= shot.ends {
@@ -1236,7 +1331,7 @@ fn focus_radius(
 
 fn mark_boss_zone(
     arena: Res<Arena>,
-    time: Res<Time>,
+    time: Res<Time<Real>>,
     mut query: Query<(&mut Transform, &mut Visibility), With<BossMarker>>,
 ) {
     let Ok((mut transform, mut visible)) = query.single_mut() else {

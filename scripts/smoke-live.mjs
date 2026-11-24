@@ -115,11 +115,12 @@ try {
   assert.equal(placed.status,200);
   assert.equal(drawn.status,200);
   assert.equal(drawn.data.game.rule_version,2);
-  const [reserve]=drawn.data.game.players[1].reserve;
-  assert.ok(reserve.tier>=1 && reserve.tier<=5);
-  assert.equal(drawn.data.game.pieces.some(p=>p.owner===1),false);
-  assert.equal((await action(guest,id,{type:'deploy',id:reserve.id,slot:19})).status,409);
-  result(await action(guest,id,{type:'deploy',id:reserve.id,slot:14}),200);
+  const initial=drawn.data.game.pieces.find(piece=>piece.owner===1);
+  assert.ok(initial.tier>=1 && initial.tier<=5 && initial.slot<16);
+  assert.equal(drawn.data.game.players[1].reserve.length,0);
+  assert.equal((await action(guest,id,{type:'move',id:initial.id,slot:19})).status,409);
+  const destination=initial.slot===14?13:14;
+  result(await action(guest,id,{type:'move',id:initial.id,slot:destination}),200);
   const owner=await a.until(p=>p.game.pieces.length===2);
   const partner=await b.until(p=>p.game.pieces.length===2);
   assert.deepEqual(owner.game.pieces.map(p=>p.id),partner.game.pieces.map(p=>p.id));

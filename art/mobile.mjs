@@ -1,14 +1,14 @@
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { MeshoptEncoder, MeshoptSimplifier } from 'meshoptimizer';
+import { MeshoptSimplifier } from 'meshoptimizer';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { reindex } from './mesh-budget.mjs';
 
 const assets = new URL('../public/assets/', import.meta.url);
 const catalog = JSON.parse(await readFile(new URL('catalog.json', assets), 'utf8'));
 const mobile = new URL('mobile/', assets);
 await mkdir(mobile, { recursive: true });
-await Promise.all([MeshoptEncoder.ready, MeshoptSimplifier.ready]);
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS);
 
 function attributes(primitive, fields, count) {
@@ -25,21 +25,6 @@ function attributes(primitive, fields, count) {
     }
   }
   return { samples, weights };
-}
-
-function reindex(primitive, indices) {
-  const [remap, count] = MeshoptEncoder.reorderMesh(indices, true, true);
-  primitive.getIndices().setArray(count <= 65_535 ? Uint16Array.from(indices) : indices);
-  for (const attribute of primitive.listAttributes()) {
-    const original = attribute.getArray();
-    const size = attribute.getElementSize();
-    const compact = new original.constructor(count * size);
-    for (let index = 0; index < remap.length; index++) {
-      if (remap[index] === 0xffffffff) continue;
-      compact.set(original.subarray(index * size, (index + 1) * size), remap[index] * size);
-    }
-    attribute.setArray(compact);
-  }
 }
 
 const boards = catalog.themes.map(({ id }) => `arena_${id}`);

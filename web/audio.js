@@ -6,6 +6,7 @@ let soundtrack;
 let preparing = '';
 let musicError = false;
 let lastImpact = -Infinity;
+let lastRecruit = -Infinity;
 const buffers = new Map();
 
 function soundChanged() {
@@ -128,6 +129,13 @@ export function score(next) {
 }
 
 export function battleSound(event) {
+  if (['draw', 'reserve', 'stack'].includes(event.kind)) {
+    const now = performance.now();
+    if (now - lastRecruit < 100) return;
+    lastRecruit = now;
+    void play(event.kind === 'draw' ? 'place' : event.kind, 0.38);
+    return;
+  }
   if (event.kind === 'impact') {
     const now = performance.now();
     if (now - lastImpact < 125) return;
@@ -135,7 +143,7 @@ export function battleSound(event) {
     void play(['sun', 'frost', 'rally'].includes(event.actor) ? 'magic' : 'impact', 0.22);
     return;
   }
-  const audio = {place:'place',reserve:'reserve',stack:'stack',oracle_hit:'oracle',bounty:'wave',
+  const audio = {place:'place',oracle_hit:'oracle',bounty:'wave',
     ritual:'ritual',merge:'merge',upgrade:'merge',cast:'cast',boss:'boss',boss_windup:'wave',
     boss_impact:'boss',wave:'wave',victory:'victory',leak:'impact'}[event.kind];
   if (audio) void play(audio, audio === 'boss' ? 0.52 : 0.38);

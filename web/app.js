@@ -32,6 +32,7 @@ let arena = null;
 let arenaInit = null;
 let renderedGame = null;
 let renderedMove = null;
+let arenaUpdate = 0;
 let movePreview = null;
 let loadedBoard = '';
 let socket = null;
@@ -50,6 +51,7 @@ let slotSignature = '';
 let legendSignature = '';
 let lastPhase = '';
 let drawNoticeTimer;
+const recruitHighlights = new Map();
 let waveRewardTimer;
 let dragStart = null;
 let suppressedClick=null;
@@ -346,6 +348,12 @@ async function startArena() {
 }
 
 function supplyArena() {
+  if (!arena || !room || arenaUpdate) return;
+  arenaUpdate = requestAnimationFrame(pushArena);
+}
+
+function pushArena() {
+  arenaUpdate = 0;
   if (!arena || !room) return;
   if (renderedGame !== room.game || renderedMove !== movePreview) {
     let game = room.game;
@@ -359,7 +367,8 @@ function supplyArena() {
       }) };
     }
     arena.set_viewer(room.viewer);
-    arena.set_room_state(room.id, JSON.stringify(game));
+    const {rituals, ...scene} = game;
+    arena.set_room_state(room.id, JSON.stringify(scene));
     renderedGame = room.game;
     renderedMove = movePreview;
   }
@@ -377,6 +386,11 @@ function openMatch(packet) {
   pending = null;
   menuPane = isCircuit(packet.game) ? null : 'building';
   focusHero = null;
+  for (const [slot,timer] of recruitHighlights) {
+    clearTimeout(timer);
+    grid[slot]?.classList.remove('recruit-arrival');
+  }
+  recruitHighlights.clear();
   lastPhase = '';
   recentEvents = new Set();
   orderSignature = '';
@@ -668,7 +682,7 @@ function paintOrders() {
       ${viewer === 0 ? `<button class="primary" data-order="start" ${!joined || locked || !boardReady ? 'disabled' : ''}>Partie starten ▸</button>` :
         '<p class="hint">Der Gastgeber startet eure Partie.</p>'}
       ${sign ? `<p class="hint guide-note">${esc(sign.name)} · Stufe ${player.field_sign.rank}</p>` : ''}
-      <p class="hint guide-note">${circuit ? 'Wähle für eine neue Einheitenart das erste Feld. Weitere Exemplare bilden automatisch einen Trupp aus bis zu drei Einheiten.' :
+      <p class="hint guide-note">${circuit ? 'Rekruten landen direkt auf dem Brett. Ziehe einen Trupp mit dem Finger, um ihn zu verschieben. Drei gleiche Einheiten kannst du verschmelzen.' :
         `Rekrutiere für ${drawCost} Gold. Drei gleiche Einheiten kannst du verschmelzen.`}</p>`;
   } else if (['won','lost'].includes(game.phase)) {
     orders.innerHTML = `<div class="orders-heading"><p class="kicker">Schlachtbericht</p><h2>${game.phase === 'won' ? 'Die Bastion hält' : 'Die Bastion ist gefallen'}</h2></div>
@@ -716,6 +730,17 @@ function revealRecruit(unit, detail) {
   drawNoticeTimer=setTimeout(()=>{label.hidden=true;},1600);
 }
 
+function markRecruit(slot) {
+  const field = grid[slot];
+  if (!field) return;
+  clearTimeout(recruitHighlights.get(slot));
+  field.classList.add('recruit-arrival');
+  recruitHighlights.set(slot, setTimeout(() => {
+    field.classList.remove('recruit-arrival');
+    recruitHighlights.delete(slot);
+  }, 1050));
+}
+
 function chooseReserve(recruit) {
   selected=null;
   pending={type:'deploy',id:recruit.id};
@@ -736,15 +761,16 @@ async function command(order, hint) {
     receive(result);
     if(isCircuit(result.game) && ['recruit','recruit_many','oracle'].includes(order.type)) {
       const recruit=result.game.players[result.viewer].reserve.find(r=>!before.has(r.id));
-      if(recruit)chooseReserve(recruit);
-      else if (!pending) {
-        const added=result.game.events.findLast(event=>event.id>=firstNewId && ['draw','stack'].includes(event.kind)
-          && result.game.pieces.some(piece=>piece.id===event.source && piece.owner===result.viewer));
-        const piece=result.game.pieces.find(piece=>piece.id===added?.source);
-        if(piece) {
-          selected=piece.id;
-          revealRecruit(piece,added.kind==='stack'?`${piece.stack}/3 im Trupp`:'Neues Feld');
-        }
+      const added = result.game.events.filter(event=>event.id>=firstNewId && ['draw','stack'].includes(event.kind))
+        .map(event=>({event,piece:result.game.pieces.find(piece=>piece.id===event.source && piece.owner===result.viewer)}))
+        .filter(({piece})=>piece);
+      for (const {piece} of added) markRecruit(piece.slot);
+      const latest = added.at(-1);
+      if (recruit) {
+        revealRecruit(recruit,'Reserve · kein Feld frei');
+      } else if (latest) {
+        const {piece,event} = latest;
+        revealRecruit(piece,event.kind==='stack' ? `${piece.stack}/3 im Trupp` : 'Auf dem Spielfeld');
       }
     }
     if(typeof hint==='function')hint(result);
@@ -770,10 +796,6 @@ async function tapSlot(slot) {
         selected=piece.id;
         if(isCircuit(result.game))menuPane=null;
       }
-      if(action.type==='deploy'){
-        const next=result.game.players[result.viewer].reserve[0];
-        if(next)chooseReserve(next);
-      }
       paintMatch();
       supplyArena();
     });
@@ -781,7 +803,7 @@ async function tapSlot(slot) {
   }
   const piece=room.game.pieces.find(item=>item.slot===slot&&item.owner===room.viewer);
   selected=piece?.id??null;
-  if(isCircuit(room.game)) menuPane=piece?'piece':null;
+  if(isCircuit(room.game)) menuPane=null;
   paintMatch();
   supplyArena();
 }
@@ -926,10 +948,10 @@ window.addEventListener('pantheon-frame-rate',event=>{
   slowSamples=fps<(resolution==='sharp'?42:26) ? slowSamples+1 : 0;
   severeSamples=fps<15 ? severeSamples+1 : 0;
   fastSamples=fps>=54 ? fastSamples+1 : 0;
-  if(severeSamples>=2) stage.dataset.resolution='economy';
+  if(severeSamples>=2 && resolution!=='economy') stage.dataset.resolution='economy';
   else if(slowSamples>=2 && resolution==='sharp') delete stage.dataset.resolution;
   else if(slowSamples>=3 && !resolution) stage.dataset.resolution='performance';
-  else if(fastSamples>=8) {
+  else if(fastSamples>=8 && room.game.phase!=='combat') {
     if(resolution==='economy') stage.dataset.resolution='performance';
     else if(resolution==='performance') delete stage.dataset.resolution;
     else if(!resolution && devicePixelRatio>1.25) stage.dataset.resolution='sharp';

@@ -59,6 +59,11 @@
   box-shadow:inset 0 0 0 1px #f9edbeaf,0 0 4px #eef0c884;
 }
 .circuit-game .build-slot.marked { outline:2px solid #655037; outline-offset:-2px; box-shadow:inset 0 0 0 4px #ffebb9b3; }
+.circuit-game .build-slot.recruit-arrival::after {
+  content:""; position:absolute; inset:-3px; border:2px solid #ffe3a0; border-radius:7px;
+  box-shadow:inset 0 0 9px #ffe9a2a8; pointer-events:none; animation:recruit-arrival 1050ms ease-out both;
+}
+@keyframes recruit-arrival { from { opacity:1; } to { opacity:.12; } }
 .circuit-game .build-slot.locked-tile { opacity:.5; }
 .circuit-game .build-slot.movable { cursor:grab; }
 .circuit-game .build-slot.drag-origin { cursor:grabbing; opacity:.56; }
@@ -196,5 +201,5 @@
   .orders.circuit-orders { height:100%; max-height:100%; }
 }
 @media (prefers-reduced-motion:reduce) {
-  .draw-reveal { animation:none; }
+  .draw-reveal,.circuit-game .build-slot.recruit-arrival::after { animation:none; }
 }

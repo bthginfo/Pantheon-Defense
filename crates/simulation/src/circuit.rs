@@ -260,7 +260,7 @@ impl Game {
     }
 
     fn recruit_destination(
-        &self,
+        &mut self,
         player: usize,
         actor: &str,
         tier: u8,
@@ -269,20 +269,19 @@ impl Game {
         if let Some(index) = self.find_stack(player, actor, tier, None) {
             return Some((self.pieces[index].slot, Some(index)));
         }
-        let duplicate = self
-            .pieces
-            .iter()
-            .any(|piece| piece.owner == player && piece.actor == actor && piece.tier == tier);
-        preferred
-            .and_then(|slot| self.circuit_free(player, Some(slot)))
-            .or_else(|| {
-                if duplicate {
-                    self.circuit_free(player, None)
-                } else {
-                    None
-                }
+        if let Some(slot) = preferred.and_then(|slot| self.circuit_free(player, Some(slot))) {
+            return Some((slot, None));
+        }
+        let open: Vec<_> = DRAW_ORDER
+            .into_iter()
+            .filter(|&slot| {
+                self.valid_slot(player, slot) && !self.pieces.iter().any(|piece| piece.slot == slot)
             })
-            .map(|slot| (slot, None))
+            .collect();
+        if open.is_empty() {
+            return None;
+        }
+        Some((open[self.draw(open.len())], None))
     }
 
     fn receive_recruit(&mut self, player: usize, actor: &Actor, preferred: Option<usize>) -> u32 {
@@ -406,7 +405,7 @@ impl Game {
         }
         let recruit = self.players[player].reserve.remove(index);
         self.put_draw(player, &recruit.actor, recruit.tier, slot, stack);
-        // A multi-draw can leave several copies waiting before a type has its first tile.
+        // A full board can leave several copies of one unit in reserve.
         while let Some(index) = self.players[player]
             .reserve
             .iter()
@@ -815,10 +814,6 @@ mod tests {
     #[test]
     fn deploying_reserves_requires_a_matching_open_field_and_three_can_merge_at_level_one() {
         let mut game = opened(vec![1, 1]);
-        game.apply(0, Action::Recruit { slot: None }).unwrap();
-        assert!(game.pieces.is_empty());
-        assert_eq!(game.players[0].reserve.len(), 1);
-
         let hoplite = actor("hoplite").unwrap();
         let first = game.reserve_recruit(0, hoplite);
         assert!(
@@ -892,58 +887,53 @@ mod tests {
     }
 
     #[test]
-    fn paid_copies_fill_the_selected_formation_before_opening_another_tile() {
+    fn paid_copies_fill_a_formation_before_opening_another_own_tile() {
         let mut game = opened(vec![1, 1]);
         game.players[0].gold = 1_000;
         let seed = game.rng;
-        for _ in 0..2 {
-            game.rng = seed;
-            game.apply(0, Action::Recruit { slot: None }).unwrap();
-        }
-        assert!(game.pieces.is_empty());
-        assert_eq!(game.players[0].reserve.len(), 2);
-        let recruit = game.players[0].reserve[0].clone();
-        game.apply(
-            0,
-            Action::Deploy {
-                id: recruit.id,
-                slot: 18,
-            },
-        )
-        .unwrap();
-        assert_eq!(
-            game.pieces
-                .iter()
-                .map(|p| (p.slot, p.stack))
-                .collect::<Vec<_>>(),
-            vec![(18, 2)]
-        );
-        assert!(game.players[0].reserve.is_empty());
+        game.apply(0, Action::Recruit { slot: None }).unwrap();
+        let first_slot = game.pieces[0].slot;
+        let recruit = game.pieces[0].actor.clone();
 
-        for expected in [3, 1, 2] {
+        for expected in [2, 3, 1, 2] {
             game.rng = seed;
             game.apply(0, Action::Recruit { slot: None }).unwrap();
             assert_eq!(game.pieces.last().unwrap().stack, expected);
             assert!(game.players[0].reserve.is_empty());
         }
-        assert_eq!(
-            game.pieces
-                .iter()
-                .map(|p| (p.slot, p.stack))
-                .collect::<Vec<_>>(),
-            vec![(18, 3), (16, 2)]
-        );
+        assert_eq!(game.pieces.len(), 2);
+        assert_eq!((game.pieces[0].slot, game.pieces[0].stack), (first_slot, 3));
+        assert_ne!(game.pieces[1].slot, first_slot);
         assert!(
             game.pieces
                 .iter()
-                .all(|p| p.actor == recruit.actor && p.owner == 0)
+                .all(|p| { p.actor == recruit && p.owner == 0 && (16..32).contains(&p.slot) })
         );
         assert_eq!(game.players[0].gold, 850);
 
         game.rng = seed;
         game.apply(1, Action::Recruit { slot: None }).unwrap();
-        assert_eq!(game.players[1].reserve[0].actor, recruit.actor);
+        assert!(game.players[1].reserve.is_empty());
+        assert_eq!(game.pieces[2].actor, recruit);
+        assert_eq!(game.pieces[2].owner, 1);
+        assert!(game.pieces[2].slot < 16);
         assert_eq!(game.pieces[1].stack, 2);
+    }
+
+    #[test]
+    fn recruits_respect_occupied_slots_and_vary_the_initial_slot_by_seed() {
+        let mut slots = std::collections::BTreeSet::new();
+        for seed in 1..=8 {
+            let mut game = opened(vec![1, 1]);
+            game.rng ^= seed;
+            game.add_piece(0, 16, "ballista", 1);
+            game.apply(0, Action::Recruit { slot: None }).unwrap();
+            assert_eq!(game.pieces.len(), 2);
+            let slot = game.pieces[1].slot;
+            assert!((17..32).contains(&slot));
+            slots.insert(slot);
+        }
+        assert!(slots.len() > 1);
     }
 
     #[test]

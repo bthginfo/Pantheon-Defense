@@ -4,7 +4,6 @@ aquilifer
 arena_aegean
 arena_japan
 arena_rome
-ash_consul
 ash_scout
 ashigaru
 astra
@@ -23,7 +22,6 @@ cinder_standard
 coral_ward
 custos
 daedalon
-deep_king
 flood_herald
 fulgur
 funditor
