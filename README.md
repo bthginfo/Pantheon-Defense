@@ -1,23 +1,37 @@
 # Pantheon Defense
 
-Ein 3D-Tower-Defense in Rust und Bevy für Solo und privaten Zweier-Koop. Ihr haltet ein
-gemeinsames Tor, zieht Truppen aus der aktiven Fraktion, verschmelzt jeweils drei gleiche
-Truppen eines Rangs und baut Verteidigungen auf festen Bauplätzen. Im Laufe der Partien
-schaltet das Konto neue Karten, Herausforderungen, Gebäude und Helden frei. Siege und erreichte Meilensteine bringen Siegel, die deine Figuren dauerhaft trainieren.
+Ein 3D-Tower-Defense in Rust und Bevy für Solo und privaten Zweier-Koop.
+Verteidige einen gemeinsamen Rundkurs und meistere acht Herausforderungen mit
+16 bis 48 Wellen. Drei Fraktionen aus Griechenland, Rom und Japan bringen
+36 Truppen, 24 Helden und neun Gebäude aufs Brett.
 
 ## Spielen
 
-1. Erstelle ein Konto mit einem eindeutigen Rufnamen.
-2. Wähle in der Bastion eine Karte und Herausforderung. Für Koop wählst du **Zu zweit**
-   und gibst den Rufnamen des registrierten Mitspielers ein.
-3. Kopiere den Link im Spielraum. Das eingeladene Konto öffnet den Link und tritt bei.
-4. Der Gastgeber startet. Ziehe Truppen oder wähle ein Gebäude und anschließend dessen
-   Bauplatz. Klicke eine aufgestellte Figur an, um sie auszubauen, zu verschmelzen oder
-   zu versetzen. Ein Held kann in der Welle seine Spezialfähigkeit einsetzen.
-5. Nach der Partie siehst du Erfahrungspunkte und Freischaltungen in **Chronik** und **Sammlung**. In der Sammlung kannst du mit Siegeln die Meisterschaft einer freigeschalteten Figur bis Stufe 3 erhöhen.
+1. Erstelle ein Konto mit einem eindeutigen Rufnamen. Wähle eine Karte und
+   Herausforderung. Bei **Zu zweit** gibst du den Rufnamen des registrierten
+   Mitspielers ein. Kopiere den Einladungslink im Spielraum und teile ihn mit
+   der eingeladenen Person.
+2. Der Gastgeber startet. **Truppe ziehen** legt einen Rekruten in die Reserve.
+   Wähle selbst eines der markierten Felder. Auf einem Feld kannst du bis zu
+   drei Exemplare derselben Truppe und Seltenheit sammeln.
+3. Tippe einen Dreierstapel an und wähle **Verschmelzen**, um auf demselben Feld
+   eine Truppe der nächsten Seltenheit zu bekommen. Die Stufen sind Common,
+   Uncommon, Rare, Epic und Legendary.
+4. Ziehe bewegliche Figuren auf ein anderes Feld oder nutze **Umstellen**.
+   Gebäude bleiben auf dem gewählten Bauplatz. Helden rufst du aus drei
+   Truppen nach ihrem Rezept. Im Kampf setzt du ihre Fähigkeiten ein.
+5. Wellen wechseln nach Zeit. Gegner bleiben auf dem Rundkurs, bis sie besiegt
+   sind. Der gemeinsame Gegnerzähler und die Bossfristen entscheiden über den
+   Ausgang. Gold, Essenz, Orakel und Schmiede helfen dir beim Ausbau.
+6. Erfahrung und Siegel öffnen neue Karten, Herausforderungen und Figuren.
+   In der Sammlung trainierst du freigeschaltete Figuren bis Meisterschaft 3.
 
-Tastaturkürzel auf dem Spielfeld sind R zum Ziehen, M zum Umstellen, U zum Ausbauen,
-F für die Heldenfähigkeit und Leertaste für den Wellenstart. Escape bricht eine Zielauswahl ab.
+Die Partie nutzt das Handy im Hochformat. Im Browser öffnet das Symbol neben dem
+Verbindungsstatus den Vollbildmodus. Auf dem iPhone wähle in Safari **Teilen ›
+Zum Home-Bildschirm** und starte Pantheon über den Home-Bildschirm.
+
+Tastaturkürzel sind R zum Ziehen, M zum Umstellen, U zum Ausbauen, F für die
+Heldenfähigkeit und Leertaste für den Wellenstart. Escape bricht eine Zielauswahl ab.
 
 ## Entwicklung
 

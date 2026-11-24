@@ -109,17 +109,23 @@ try {
   await Promise.all([a.until(p=>p.joined && p.viewer===0),b.until(p=>p.joined && p.viewer===1)]);
   result(await action(host,id,{type:'start'}),200);
   const [placed,drawn]=await Promise.all([
-    action(host,id,{type:'place',actor:'ballista',slot:2}),
-    action(guest,id,{type:'recruit',slot:14}),
+    action(host,id,{type:'place',actor:'ballista',slot:18}),
+    action(guest,id,{type:'recruit'}),
   ]);
   assert.equal(placed.status,200);
   assert.equal(drawn.status,200);
+  assert.equal(drawn.data.game.rule_version,2);
+  const [reserve]=drawn.data.game.players[1].reserve;
+  assert.ok(reserve.tier>=1 && reserve.tier<=5);
+  assert.equal(drawn.data.game.pieces.some(p=>p.owner===1),false);
+  assert.equal((await action(guest,id,{type:'deploy',id:reserve.id,slot:19})).status,409);
+  result(await action(guest,id,{type:'deploy',id:reserve.id,slot:14}),200);
   const owner=await a.until(p=>p.game.pieces.length===2);
   const partner=await b.until(p=>p.game.pieces.length===2);
   assert.deepEqual(owner.game.pieces.map(p=>p.id),partner.game.pieces.map(p=>p.id));
   const cannon=owner.game.pieces.find(p=>p.owner===0);
   assert.equal((await action(guest,id,{type:'move',id:cannon.id,slot:15})).status,409);
-  assert.equal((await action(host,id,{type:'move',id:cannon.id,slot:3})).status,409);
+  assert.equal((await action(host,id,{type:'move',id:cannon.id,slot:19})).status,409);
   const recruit=partner.game.pieces.find(p=>p.owner===1);
   const nonce=randomUUID();
   result(await action(guest,id,{type:'upgrade',id:recruit.id},nonce),200);

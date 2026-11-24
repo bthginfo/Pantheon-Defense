@@ -641,8 +641,13 @@ def portrait(root, ident, large=False, hero=False):
 
 def run():
     subset = set(sys.argv[sys.argv.index("--")+1:]) if "--" in sys.argv else set()
+    structures_only = "--structures" in subset
+    if structures_only:
+        subset.remove("--structures")
     for data in CATALOG["actors"]:
         ident = data["id"]
+        if structures_only and data["kind"] != "building":
+            continue
         if subset and ident not in subset:
             continue
         clean()
@@ -650,7 +655,7 @@ def run():
         export(root, ident)
         portrait(root, ident, ident == "thekla", data["kind"] == "hero")
     for data in CATALOG["enemies"]:
-        if subset and data["id"] not in subset:
+        if structures_only or (subset and data["id"] not in subset):
             continue
         clean()
         export(character(data,"rift",True), data["id"])

@@ -29,12 +29,22 @@ async function connect() {
   }
   if (process.env.BLOB_READ_WRITE_TOKEN || process.env.BLOB_STORE_ID) {
     const path = key => `state/v1/${key}.json`;
+    const documents = new Map();
+    function remember(key, version, body) {
+      documents.delete(key);
+      documents.set(key, { version, body });
+      if (documents.size > 32) documents.delete(documents.keys().next().value);
+    }
     return {
       async read(key) {
         try {
           for (let attempt = 0; attempt < 4; attempt++) {
             const metadata = await head(path(key));
             if (!metadata.etag) throw new Error('The storage response did not return a document version.');
+            const cached = documents.get(key);
+            if (cached?.version === metadata.etag) {
+              return { version: cached.version, value: JSON.parse(cached.body) };
+            }
             // A versioned read keeps the document body and the conditional-write tag consistent.
             const url = new URL(metadata.url);
             url.searchParams.set('revision', metadata.etag);
@@ -42,7 +52,9 @@ async function connect() {
               headers: { 'Cache-Control': 'no-cache', 'Accept-Encoding': 'identity' } });
             if (!response || response.statusCode !== 200) continue;
             if (response.blob.etag === metadata.etag) {
-              const value = await new Response(response.stream).json();
+              const body = await new Response(response.stream).text();
+              const value = JSON.parse(body);
+              remember(key, metadata.etag, body);
               return { version: metadata.etag, value };
             }
             await response.stream.cancel();
@@ -56,10 +68,12 @@ async function connect() {
       },
       async write(key, version, value) {
         try {
-          await put(path(key), JSON.stringify(value), {
+          const body = JSON.stringify(value);
+          const saved = await put(path(key), body, {
             access: 'private', addRandomSuffix: false, contentType: 'application/json',
             allowOverwrite: version !== undefined, ...(version !== undefined && { ifMatch: version }),
           });
+          if (saved.etag) remember(key, saved.etag, body);
         } catch (error) {
           if (error instanceof BlobPreconditionFailedError
               || (version === undefined && /already exists/i.test(error?.message ?? ''))) throw new Conflict();

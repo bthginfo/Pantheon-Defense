@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "Pantheon Defense",
+  "short_name": "Pantheon",
+  "description": "Dreidimensionales Tower Defense für Solo und Zweier-Koop",
+  "lang": "de",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "portrait-primary",
+  "background_color": "#111f24",
+  "theme_color": "#111f24",
+  "icons": [
+    {"src":"/assets/icons/192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+    {"src":"/assets/icons/512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ]
+}

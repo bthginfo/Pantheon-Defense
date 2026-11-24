@@ -1,3 +1,6 @@
+mod circuit;
+pub use circuit::{CIRCUIT_RULES, circuit_route, route_point, squad_damage, tiles_for};
+
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::OnceLock};
 
@@ -39,11 +42,35 @@ pub struct Actor {
     pub skill: Option<String>,
     pub cost: i32,
     pub unlock: u8,
+    #[serde(default)]
+    pub legacy_unlock: Option<u8>,
     pub damage: f32,
     pub range: f32,
     pub period: u64,
     pub effect: f32,
     pub color: String,
+    #[serde(default = "one")]
+    pub rarity: u8,
+    #[serde(default)]
+    pub new_in_v4: bool,
+    #[serde(default)]
+    pub recipe: Vec<String>,
+    #[serde(default)]
+    pub spell: Option<Spell>,
+}
+
+fn one() -> u8 {
+    1
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Spell {
+    pub radius: f32,
+    pub damage: f32,
+    pub slow: f32,
+    pub duration: u64,
+    pub buff: u64,
+    pub shred: f32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -65,6 +92,8 @@ pub struct Challenge {
     pub unlock: u8,
     pub waves: u8,
     pub reward: f32,
+    #[serde(default)]
+    pub arena_waves: Option<u8>,
 }
 
 static CATALOG: OnceLock<Catalog> = OnceLock::new();
@@ -175,6 +204,8 @@ pub const SLOTS: [Point; 24] = [
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Setup {
+    #[serde(default = "one")]
+    pub rule_version: u8,
     pub theme: String,
     pub challenge: String,
     pub levels: Vec<u8>,
@@ -185,6 +216,8 @@ pub struct Setup {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Game {
+    #[serde(default = "one")]
+    pub rule_version: u8,
     pub theme: String,
     pub challenge: String,
     pub wave_limit: u8,
@@ -228,7 +261,24 @@ pub struct Player {
     pub merges: u32,
     pub casts: u32,
     #[serde(default)]
+    pub essence: i32,
+    #[serde(default)]
+    pub favor: u8,
+    #[serde(default)]
+    pub temper: [u8; 5],
+    #[serde(default)]
+    pub summoned: u32,
+    #[serde(default)]
+    pub reserve: Vec<Recruit>,
+    #[serde(default)]
     pub mastery: BTreeMap<String, u8>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Recruit {
+    pub id: u32,
+    pub actor: String,
+    pub tier: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,6 +289,8 @@ pub struct Piece {
     pub slot: usize,
     pub tier: u8,
     pub rank: u8,
+    #[serde(default = "one")]
+    pub stack: u8,
     #[serde(default)]
     pub mastery: u8,
     pub ready: u64,
@@ -261,6 +313,12 @@ pub struct Enemy {
     pub haste_until: u64,
     #[serde(default)]
     pub challenged: bool,
+    #[serde(default)]
+    pub deadline: u64,
+    #[serde(default)]
+    pub exposed: f32,
+    #[serde(default)]
+    pub exposed_until: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,6 +361,13 @@ pub enum Action {
     Start,
     Ready,
     Recruit { slot: Option<usize> },
+    RecruitMany { count: u8 },
+    Deploy { id: u32, slot: usize },
+    Stow { id: u32 },
+    Oracle { tier: u8 },
+    Ritual { actor: String },
+    Temper { tier: u8 },
+    Fortune,
     Place { actor: String, slot: usize },
     Move { id: u32, slot: usize },
     Merge { id: u32 },
@@ -332,17 +397,39 @@ impl Game {
             .find(|c| c.id == setup.challenge)
             .ok_or("Diese Herausforderung gibt es nicht.")?;
         let solo = setup.levels.len() == 1;
-        let (initial_gold, max_life) = match (setup.challenge.as_str(), solo) {
-            ("scarcity", _) => (210, 16),
-            ("duelist", _) => (415, 25),
-            ("levy", _) => (365, 27),
-            (_, true) => (345, 25),
-            _ => (310, 22),
+        let rule_version = if setup.rule_version >= CIRCUIT_RULES {
+            CIRCUIT_RULES
+        } else {
+            1
+        };
+        let circuit = rule_version == CIRCUIT_RULES;
+        let (initial_gold, max_life) = if circuit {
+            (
+                match setup.challenge.as_str() {
+                    "scarcity" => 128,
+                    "levy" => 212,
+                    _ => 187,
+                },
+                if solo { 45 } else { 64 },
+            )
+        } else {
+            match (setup.challenge.as_str(), solo) {
+                ("scarcity", _) => (210, 16),
+                ("duelist", _) => (415, 25),
+                ("levy", _) => (365, 27),
+                (_, true) => (345, 25),
+                _ => (310, 22),
+            }
         };
         Ok(Self {
+            rule_version,
             theme: theme.id.clone(),
             challenge: challenge.id.clone(),
-            wave_limit: challenge.waves,
+            wave_limit: if circuit {
+                challenge.arena_waves.unwrap_or(challenge.waves)
+            } else {
+                challenge.waves
+            },
             wave: 0,
             phase: Phase::Lobby,
             tick: 0,
@@ -360,6 +447,11 @@ impl Game {
                     recruits: 0,
                     merges: 0,
                     casts: 0,
+                    essence: if circuit { 1 } else { 0 },
+                    favor: 0,
+                    temper: [0; 5],
+                    summoned: 0,
+                    reserve: Vec::new(),
                     mastery: setup.masteries.get(index).cloned().unwrap_or_default(),
                 })
                 .collect(),
@@ -408,10 +500,15 @@ impl Game {
     }
 
     fn valid_slot(&self, player: usize, slot: usize) -> bool {
-        slot < SLOTS.len() && (self.players.len() == 1 || player == slot / 12)
+        slot < self.tiles().len() && (self.players.len() == 1 || player == self.tile_owner(slot))
     }
 
     fn free_slot(&self, player: usize, slot: Option<usize>) -> Result<usize, &'static str> {
+        if self.on_circuit() {
+            return self
+                .circuit_free(player, slot)
+                .ok_or("Auf diesem Feld ist kein Platz.");
+        }
         let available =
             |slot| self.valid_slot(player, slot) && !self.pieces.iter().any(|p| p.slot == slot);
         slot.filter(|s| available(*s))
@@ -448,6 +545,7 @@ impl Game {
     fn recruit_pool(&self, player: usize) -> Vec<&'static Actor> {
         let theme = &self.theme;
         let level = self.players[player].level;
+        let circuit = self.on_circuit();
         let entry_level = catalog()
             .themes
             .iter()
@@ -457,12 +555,21 @@ impl Game {
             .actors
             .iter()
             .filter(|a| {
-                a.theme == *theme && a.kind == "troop" && a.unlock <= level.max(entry_level)
+                let unlock = if circuit {
+                    a.unlock
+                } else {
+                    a.legacy_unlock.unwrap_or(a.unlock)
+                };
+                a.theme == *theme
+                    && a.kind == "troop"
+                    && unlock <= level.max(entry_level)
+                    && (circuit || !a.new_in_v4)
             })
             .collect()
     }
 
     fn add_piece(&mut self, player: usize, slot: usize, actor: &str, tier: u8) {
+        let tiles = self.tiles();
         let id = self.id();
         self.pieces.push(Piece {
             id,
@@ -471,6 +578,7 @@ impl Game {
             slot,
             tier,
             rank: 1,
+            stack: 1,
             mastery: self.players[player]
                 .mastery
                 .get(actor)
@@ -483,10 +591,14 @@ impl Game {
             buff_until: 0,
         });
         self.event(
-            if tier > 1 { "merge" } else { "place" },
+            if tier > 1 && !self.on_circuit() {
+                "merge"
+            } else {
+                "place"
+            },
             actor,
             id,
-            SLOTS[slot],
+            tiles[slot],
             f32::from(tier),
         );
     }
@@ -498,12 +610,13 @@ impl Game {
         if self.phase == Phase::Lobby && !matches!(command, Action::Start | Action::Forfeit) {
             return Err("Starte zuerst die Partie.");
         }
+        let tiles = self.tiles();
         match command {
             Action::Start => {
                 if player != 0 || self.phase != Phase::Lobby {
                     return Err("Die Partie kann nur einmal vom Gastgeber gestartet werden.");
                 }
-                self.prepare(0);
+                self.prepare(if self.on_circuit() { 260 } else { 0 });
             }
             Action::Ready => {
                 if self.phase != Phase::Prep {
@@ -518,6 +631,9 @@ impl Game {
                 }
             }
             Action::Recruit { slot } => {
+                if self.on_circuit() {
+                    return self.circuit_draw(player, slot);
+                }
                 let slot = self.free_slot(player, slot)?;
                 let pool = self.recruit_pool(player);
                 if pool.is_empty() {
@@ -535,8 +651,45 @@ impl Game {
                 self.add_piece(player, slot, &pool[choice].id, 1);
                 self.players[player].recruits += 1;
             }
+            Action::RecruitMany { count } => {
+                if !self.on_circuit() || !(1..=5).contains(&count) {
+                    return Err("Diese Mehrfachziehung ist hier nicht verfügbar.");
+                }
+                self.circuit_draw(player, None)?;
+                for _ in 1..count {
+                    if self.circuit_draw(player, None).is_err() {
+                        break;
+                    }
+                }
+            }
+            Action::Deploy { id, slot } => return self.deploy_recruit(player, id, slot),
+            Action::Stow { id } => return self.release_recruit(player, id),
+            Action::Oracle { tier } => return self.oracle(player, tier),
+            Action::Ritual { actor } => return self.ritual(player, &actor),
+            Action::Temper { tier } => return self.temper(player, tier),
+            Action::Fortune => return self.fortune(player),
             Action::Place { actor: id, slot } => {
                 let definition = actor(&id).ok_or("Diese Figur gibt es nicht.")?;
+                if self.on_circuit() {
+                    if definition.kind == "hero" {
+                        return Err("Helden erscheinen durch ihr Rezept.");
+                    }
+                    if definition.kind == "building"
+                        && self
+                            .pieces
+                            .iter()
+                            .filter(|p| {
+                                p.owner == player
+                                    && actor(&p.actor).is_some_and(|a| a.kind == "building")
+                            })
+                            .count()
+                            >= 2
+                    {
+                        return Err("Du kannst zwei Gebäude pro Aufstellung setzen.");
+                    }
+                } else if definition.new_in_v4 {
+                    return Err("Diese Figur steht in neuen Schlachten bereit.");
+                }
                 if self.challenge == "levy" && definition.kind == "building" {
                     return Err("Die Würfelwache lässt sich mit Truppen und Helden spielen.");
                 }
@@ -586,6 +739,26 @@ impl Game {
                     {
                         return Err("Der Zielplatz ist belegt.");
                     }
+                    if self.on_circuit()
+                        && self.pieces[other].actor == self.pieces[index].actor
+                        && self.pieces[other].tier == self.pieces[index].tier
+                    {
+                        if self.pieces[other].stack >= 3 {
+                            return Err("Auf diesem Feld stehen bereits drei identische Kämpfer.");
+                        }
+                        let moved = (3 - self.pieces[other].stack).min(self.pieces[index].stack);
+                        self.pieces[other].stack += moved;
+                        self.pieces[index].stack -= moved;
+                        let (actor, id, count) = (
+                            self.pieces[other].actor.clone(),
+                            self.pieces[other].id,
+                            self.pieces[other].stack,
+                        );
+                        self.pieces.retain(|p| p.stack > 0);
+                        self.event("stack", &actor, id, tiles[slot], f32::from(count));
+                        return Ok(());
+                    }
+                    let target = &mut self.pieces[other];
                     target.slot = previous;
                     target.moved_until = self.tick + 10;
                 }
@@ -593,9 +766,12 @@ impl Game {
                 piece.slot = slot;
                 piece.moved_until = self.tick + 10;
                 let kind = piece.actor.clone();
-                self.event("move", &kind, id, SLOTS[slot], 0.);
+                self.event("move", &kind, id, tiles[slot], 0.);
             }
             Action::Merge { id } => {
+                if self.on_circuit() {
+                    return self.circuit_merge(player, id);
+                }
                 let index = self.piece_index(player, id)?;
                 let main = &self.pieces[index];
                 if main.tier >= MAX_TIER || actor(&main.actor).is_none_or(|a| a.kind != "troop") {
@@ -636,7 +812,7 @@ impl Game {
                 piece.rank += 1;
                 let (kind, pos, power) = (
                     piece.actor.clone(),
-                    SLOTS[piece.slot],
+                    tiles[piece.slot],
                     f32::from(piece.rank),
                 );
                 self.event("upgrade", &kind, id, pos, power);
@@ -645,9 +821,17 @@ impl Game {
                 let index = self.piece_index(player, id)?;
                 let piece = self.pieces.remove(index);
                 let price = actor(&piece.actor).map_or(RECRUIT_COST, |a| a.cost);
-                self.players[player].gold +=
-                    price / 2 + 15 * i32::from(piece.rank - 1) + 25 * i32::from(piece.tier - 1);
-                self.event("sell", &piece.actor, id, SLOTS[piece.slot], 0.);
+                if self.on_circuit() && actor(&piece.actor).is_some_and(|a| a.kind == "troop") {
+                    self.players[player].gold +=
+                        (10 + 6 * i32::from(piece.tier)) * i32::from(piece.stack);
+                    if piece.tier >= 3 {
+                        self.players[player].essence += 1;
+                    }
+                } else {
+                    self.players[player].gold +=
+                        price / 2 + 15 * i32::from(piece.rank - 1) + 25 * i32::from(piece.tier - 1);
+                }
+                self.event("sell", &piece.actor, id, tiles[piece.slot], 0.);
             }
             Action::Cast { id, slot } => self.cast(player, id, slot)?,
             Action::Forfeit => {
@@ -659,6 +843,7 @@ impl Game {
     }
 
     fn cast(&mut self, player: usize, id: u32, slot: Option<usize>) -> Result<(), &'static str> {
+        let tiles = self.tiles();
         let index = self.piece_index(player, id)?;
         let hero = &self.pieces[index];
         let definition = actor(&hero.actor).ok_or("Dieser Held ist nicht verfügbar.")?;
@@ -669,7 +854,7 @@ impl Game {
         if self.phase != Phase::Combat || hero.cast_ready > self.tick {
             return Err("Die Fähigkeit ist gerade nicht bereit.");
         }
-        let origin = SLOTS[hero.slot];
+        let origin = tiles[hero.slot];
         let closest = self
             .enemies
             .iter()
@@ -677,7 +862,7 @@ impl Game {
             .max_by(|a, b| a.progress.total_cmp(&b.progress))
             .map(|e| e.pos);
         let target = slot
-            .and_then(|s| SLOTS.get(s).copied())
+            .and_then(|s| tiles.get(s).copied())
             .or(closest)
             .unwrap_or(origin);
         if distance(target, origin) > 9.5 {
@@ -691,6 +876,27 @@ impl Game {
             "mist" => (4.65, 58., 0.89, 135),
             _ => (3.4, 174., 0.38, 75),
         };
+        let (radius, damage, slow, duration, buff, shred) = definition
+            .spell
+            .as_ref()
+            .map(|spell| {
+                (
+                    spell.radius,
+                    spell.damage,
+                    spell.slow,
+                    spell.duration,
+                    spell.buff,
+                    spell.shred,
+                )
+            })
+            .unwrap_or((
+                radius,
+                damage,
+                slow,
+                duration,
+                if skill == "salvo" { 120 } else { 0 },
+                0.,
+            ));
         let rank_bonus = 1. + f32::from(hero.rank - 1) * 0.28 + f32::from(hero.mastery) * 0.07;
         let base = if self.challenge == "duelist" {
             340
@@ -707,19 +913,23 @@ impl Game {
                     enemy.slow = slow;
                     enemy.slow_until = tick + duration;
                 }
+                if shred > 0. {
+                    enemy.exposed = shred;
+                    enemy.exposed_until = tick + 160;
+                }
             }
         }
         if skill == "oath" {
             self.life = (self.life + 3).min(self.max_life);
         }
-        if skill == "salvo" {
+        if buff > 0 {
             for piece in &mut self.pieces {
-                if distance(SLOTS[piece.slot], target) <= radius + 1.5 {
-                    piece.buff_until = tick + 120;
+                if distance(tiles[piece.slot], target) <= radius + 1.5 {
+                    piece.buff_until = tick + buff;
                 }
             }
         }
-        if skill == "thunder" {
+        if matches!(skill, "thunder" | "charge" | "windstep") {
             if let Some(slot) = slot.filter(|slot| {
                 self.valid_slot(player, *slot) && !self.pieces.iter().any(|p| p.slot == *slot)
             }) {
@@ -756,6 +966,10 @@ impl Game {
             self.resolve_shots();
             self.remove_dead();
             self.boss_ability();
+            if self.on_circuit() {
+                self.finish_circuit_tick();
+                continue;
+            }
             if self.life <= 0 {
                 self.phase = Phase::Lost;
                 continue;
@@ -788,10 +1002,17 @@ impl Game {
         self.wave_tick = 0;
         self.spawned = 0;
         self.phase = Phase::Combat;
+        if self.on_circuit() {
+            self.phase_until = self.tick + self.wave_duration();
+        }
         self.event("wave", "", 0, [0., -6.], f32::from(self.wave));
     }
 
     fn wave_size(&self) -> u16 {
+        if self.on_circuit() {
+            return (7 + u16::from(self.wave / 2) + if self.players.len() == 2 { 4 } else { 0 })
+                .min(18);
+        }
         let base = 7 + u16::from(self.wave) * 2;
         (if self.players.len() == 2 {
             base + 3
@@ -802,7 +1023,13 @@ impl Game {
     }
 
     fn spawn_wave(&mut self) {
-        let interval = if self.challenge == "rush" { 10 } else { 12 };
+        let interval = if self.on_circuit() {
+            if self.challenge == "rush" { 10 } else { 13 }
+        } else if self.challenge == "rush" {
+            10
+        } else {
+            12
+        };
         if self.spawned >= self.wave_size() || self.wave_tick % interval != 1 {
             return;
         }
@@ -810,7 +1037,7 @@ impl Game {
         let last = self.spawned == self.wave_size();
         let boss = last
             && (self.wave == self.wave_limit
-                || self.wave % 4 == 0
+                || self.wave % if self.on_circuit() { 6 } else { 4 } == 0
                 || (self.challenge == "siege" && self.wave % 2 == 0)
                 || (self.challenge == "duelist" && self.wave % 3 == 0));
         let kind = if boss {
@@ -834,14 +1061,20 @@ impl Game {
         } else {
             "reaver"
         };
-        let lane = if self.players.len() == 1 && self.wave <= 2 {
+        let lane = if !self.on_circuit() && self.players.len() == 1 && self.wave <= 2 {
             0
         } else {
             (usize::from(self.spawned) + usize::from(self.wave)) % 2
         };
         let def = enemy_kind(kind);
-        let growth = 1. + f32::from(self.wave - 1) * 0.095;
-        let team_scale = if self.players.len() == 2 { 1.12 } else { 0.79 };
+        let growth = 1. + f32::from(self.wave - 1) * if self.on_circuit() { 0.106 } else { 0.095 };
+        let team_scale = if self.on_circuit() {
+            if self.players.len() == 2 { 1.28 } else { 0.77 }
+        } else if self.players.len() == 2 {
+            1.12
+        } else {
+            0.79
+        };
         let hp = def.hp * growth * team_scale * if self.challenge == "siege" { 1.18 } else { 1. };
         let id = self.id();
         self.enemies.push(Enemy {
@@ -849,13 +1082,20 @@ impl Game {
             kind: kind.into(),
             lane,
             progress: 0.,
-            pos: path_pos(&self.theme, lane, 0.),
+            pos: route_point(self.rule_version, &self.theme, lane, 0.),
             hp,
             max_hp: hp,
             slow_until: 0,
             slow: 0.,
             haste_until: 0,
             challenged: false,
+            deadline: if boss && self.on_circuit() {
+                self.tick + 580
+            } else {
+                0
+            },
+            exposed: 0.,
+            exposed_until: 0,
         });
         if boss {
             self.event("boss", kind, id, self.enemies.last().unwrap().pos, hp);
@@ -864,6 +1104,7 @@ impl Game {
 
     fn move_enemies(&mut self) {
         let tick = self.tick;
+        let rules = self.rule_version;
         let theme = &self.theme;
         let lengths = [path_len(theme, 0), path_len(theme, 1)];
         let rush = if self.challenge == "rush" { 1.27 } else { 1. };
@@ -889,8 +1130,8 @@ impl Game {
             };
             let slow = if e.slow_until > tick { 1. - e.slow } else { 1. };
             e.progress += def.speed * rush * haste * rage * slow * DT;
-            e.pos = path_pos(theme, e.lane, e.progress);
-            if e.progress >= lengths[e.lane] {
+            e.pos = route_point(rules, theme, e.lane, e.progress);
+            if rules < CIRCUIT_RULES && e.progress >= lengths[e.lane] {
                 leaks.push((e.id, def.leak));
                 false
             } else {
@@ -905,13 +1146,15 @@ impl Game {
     }
 
     fn fire(&mut self) {
+        let tiles = self.tiles();
         let tick = self.tick;
+        let circuit = self.on_circuit();
         let auras: Vec<_> = self
             .pieces
             .iter()
             .filter_map(|piece| {
                 let def = actor(&piece.actor)?;
-                (def.attack == "rally").then_some((piece.id, SLOTS[piece.slot], def.effect))
+                (def.attack == "rally").then_some((piece.id, tiles[piece.slot], def.effect))
             })
             .collect();
         let mut fired = Vec::new();
@@ -922,7 +1165,7 @@ impl Game {
             let Some(def) = actor(&piece.actor) else {
                 continue;
             };
-            let origin = SLOTS[piece.slot];
+            let origin = tiles[piece.slot];
             let range =
                 def.range + f32::from(piece.rank - 1) * 0.23 + f32::from(piece.tier - 1) * 0.45;
             let Some(enemy) = self
@@ -941,9 +1184,19 @@ impl Game {
             } else {
                 0
             };
-            let tier = [1., 2.65, 6.95][usize::from(piece.tier - 1)];
-            let rank =
-                (1. + f32::from(piece.rank - 1) * 0.42) * (1. + f32::from(piece.mastery) * 0.07);
+            let temper = if circuit && def.kind == "troop" {
+                self.players[piece.owner].temper[usize::from(piece.tier.clamp(1, 5) - 1)]
+            } else {
+                0
+            };
+            let power = squad_damage(
+                piece.tier,
+                piece.rank,
+                piece.stack,
+                piece.mastery,
+                temper,
+                circuit,
+            );
             piece.ready = tick
                 + def
                     .period
@@ -963,7 +1216,7 @@ impl Game {
                 attack: def.attack.clone(),
                 started: tick,
                 impact: tick + travel,
-                damage: def.damage * tier * rank,
+                damage: def.damage * power,
                 effect: def.effect,
             });
         }
@@ -999,7 +1252,8 @@ impl Game {
             for enemy in &mut self.enemies {
                 let is_target = enemy.id == shot.enemy;
                 if !is_target
-                    && (shot.attack != "sun" || distance(enemy.pos, shot.to) > shot.effect)
+                    && (!matches!(shot.attack.as_str(), "sun" | "chain")
+                        || distance(enemy.pos, shot.to) > shot.effect)
                 {
                     continue;
                 }
@@ -1007,8 +1261,16 @@ impl Game {
                     && wardens
                         .iter()
                         .any(|(id, pos)| *id != enemy.id && distance(*pos, enemy.pos) < 2.55);
-                let armor = enemy_kind(&enemy.kind).armor + if guarded { 0.19 } else { 0. };
-                let pierce = if shot.attack == "pierce" || shot.attack == "sun" {
+                let exposed = if enemy.exposed_until > tick {
+                    enemy.exposed
+                } else {
+                    0.
+                };
+                let armor = (enemy_kind(&enemy.kind).armor + if guarded { 0.19 } else { 0. }
+                    - exposed)
+                    .max(0.);
+                let pierce = if matches!(shot.attack.as_str(), "pierce" | "sun" | "bleed" | "shred")
+                {
                     0.14
                 } else {
                     0.
@@ -1020,6 +1282,10 @@ impl Game {
                     damage_shown = damage;
                 }
                 enemy.hp -= damage;
+                if shot.attack == "shred" {
+                    enemy.exposed = shot.effect.max(enemy.exposed);
+                    enemy.exposed_until = tick + 90;
+                }
                 if matches!(shot.attack.as_str(), "guard" | "frost") {
                     if enemy.slow_until <= tick || shot.effect >= enemy.slow {
                         enemy.slow = shot.effect;
@@ -1027,18 +1293,31 @@ impl Game {
                     }
                 }
             }
+            if shot.attack == "fortune"
+                && damage_shown > 0.
+                && self.draw(100) < (shot.effect * 100.) as usize
+            {
+                if let Some(piece) = self.pieces.iter().find(|piece| piece.id == shot.source) {
+                    self.players[piece.owner].gold += if self.rule_version >= CIRCUIT_RULES {
+                        3 + i32::from(piece.stack)
+                    } else {
+                        2
+                    };
+                }
+            }
             self.event("impact", &shot.attack, shot.enemy, shot.to, damage_shown);
         }
     }
 
     fn boss_ability(&mut self) {
+        let tiles = self.tiles();
         if let Some(cast) = &self.boss_cast {
             if !self.enemies.iter().any(|enemy| enemy.id == cast.source) {
                 self.boss_cast = None;
             } else if self.tick >= cast.until {
                 let cast = self.boss_cast.take().unwrap();
                 for piece in &mut self.pieces {
-                    if distance(SLOTS[piece.slot], cast.pos) <= cast.radius {
+                    if distance(tiles[piece.slot], cast.pos) <= cast.radius {
                         piece.ready = piece.ready.max(self.tick + 26);
                     }
                 }
@@ -1065,7 +1344,7 @@ impl Game {
             .pieces
             .iter()
             .filter_map(|piece| {
-                let p = SLOTS[piece.slot];
+                let p = tiles[piece.slot];
                 let reach = distance(p, boss.pos);
                 (reach < 5.3).then_some((p, reach))
             })
@@ -1097,15 +1376,25 @@ impl Game {
             dead.push((enemy.id, enemy.kind.clone(), enemy.pos));
             false
         });
+        let on_circuit = self.on_circuit();
         for (id, kind, pos) in dead {
             self.kills += 1;
-            let shared = if self.players.len() == 2 { 6 } else { 12 };
+            let shared = if self.on_circuit() {
+                if self.players.len() == 2 { 3 } else { 6 }
+            } else if self.players.len() == 2 {
+                6
+            } else {
+                12
+            };
             let reward = if kind == "titan" || kind == "golem" {
                 55
             } else {
                 shared
             };
             for player in &mut self.players {
+                if on_circuit && (kind == "golem" || kind == "titan") {
+                    player.essence += 3;
+                }
                 player.gold += if self.challenge == "scarcity" {
                     reward * 2 / 3
                 } else {
@@ -1164,6 +1453,7 @@ mod tests {
 
     fn game() -> Game {
         Game::new(Setup {
+            rule_version: 1,
             theme: "aegean".into(),
             challenge: "campaign".into(),
             levels: vec![3, 3],
@@ -1241,6 +1531,7 @@ mod tests {
     #[test]
     fn new_recruitment_challenge_and_mastery_apply_to_the_match() {
         let mut game = Game::new(Setup {
+            rule_version: 1,
             theme: "aegean".into(),
             challenge: "levy".into(),
             levels: vec![1],
@@ -1294,6 +1585,9 @@ mod tests {
             slow: 0.,
             haste_until: 0,
             challenged: false,
+            deadline: 0,
+            exposed: 0.,
+            exposed_until: 0,
         });
         game.boss_ability();
         assert!(game.events.iter().any(|event| event.kind == "boss_windup"));

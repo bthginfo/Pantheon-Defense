@@ -4,12 +4,14 @@ from pathlib import Path
 from random import Random
 from struct import pack
 from subprocess import run
+from sys import argv
 from tempfile import TemporaryDirectory
 import wave
 
 RATE = 24000
 OUT = Path(__file__).resolve().parent.parent / "public" / "assets" / "audio"
 OUT.mkdir(parents=True, exist_ok=True)
+SELECTED = set(argv[1:])
 
 def mix(left, right, start, duration, voice, gain, pan=0):
     onset = int(start * RATE)
@@ -63,6 +65,8 @@ def save(name, left, right):
             str(OUT / f"{name}.ogg")],check=True)
 
 def score(name, scale, roots, pattern, pulse):
+    if SELECTED and name not in SELECTED:
+        return
     duration=28.8
     left=[0.] * round(duration*RATE)
     right=left.copy()
@@ -92,6 +96,8 @@ score("japan",[57,58,62,64,65,69],[45,46,50,45]*2,
        (3,None,4,None,5,4,None,3),(2,None,1,None,0,None,None,0)],(0,5))
 
 def cue(name, duration, parts):
+    if SELECTED and name not in SELECTED:
+        return
     left=[0.] * round(duration*RATE)
     right=left.copy()
     for start, function, gain, pan in parts:
@@ -106,3 +112,7 @@ cue("cast",1.35,[(0,chime([49,56,61,66,73,78],4,.068,1.35),.81,0),(.35,drum(61,5
 cue("boss",1.35,[(0,drum(28,3.6),.63,0),(.25,drone(40,1.1),.21,-.2),(.42,drum(27,4.2),.39,.22)])
 cue("wave",.84,[(0,drum(68,7.4),.36,0),(.12,pluck(59,6),.32,-.24),(.29,pluck(66,6),.32,.22)])
 cue("victory",1.8,[(0,chime([53,60,65,69,72,77],3.0,.108,1.8),.86,0),(.26,drone(48,1.53),.23,0)])
+cue("reserve",.53,[(0,pluck(58,12,.24),.45,-.19),(.072,pluck(70,7),.41,.18)])
+cue("stack",.46,[(0,drum(104,14),.26,-.2),(.068,pluck(62,9),.34,.16),(.13,pluck(69,8),.29,.02)])
+cue("oracle",1.02,[(0,drone(56,.92),.27,-.13),(.12,chime([64,66,73,76],6,.093,.9),.56,.12)])
+cue("ritual",1.42,[(0,drum(48,8),.47,0),(.14,drone(48,1.23),.28,.24),(.24,chime([48,55,60,64,72],4,.094,1.16),.66,-.1)])

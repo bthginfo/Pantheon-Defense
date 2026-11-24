@@ -45,34 +45,55 @@ test('mobile lobby, collection and account interface fit a narrow viewport', asy
   await expect(page.getByRole('heading',{name:'Akari',exact:true})).toBeVisible();
 });
 
-test('a solo match renders the Bevy arena and persists results', async ({page}, testInfo) => {
+test('a phone can draw, place and fight fullscreen in the Bevy arena', async ({browser,baseURL}, testInfo) => {
+  const context = await browser.newContext({baseURL,viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:2});
+  const page = await context.newPage();
   const failures = [];
   page.on('pageerror', error => failures.push(error.message));
-  await signUp(page,testAccount('solo'));
-  await page.locator('#challenge').selectOption('rush');
-  await page.locator('#create-match').click();
-  await expect(page.locator('#stage')).toHaveAttribute('data-rendered','true',{timeout:45000});
-  await expect(page.locator('#stage')).toHaveAttribute('data-models','ready',{timeout:45000});
-  await expect(page.getByRole('button',{name:/Partie starten/})).toBeEnabled();
-  await page.getByRole('button',{name:/Partie starten/}).click();
-  await page.getByRole('button',{name:/Ägäis-Balliste/}).click();
-  await page.getByRole('button',{name:'Bauplatz 3',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Ägäis-Balliste',exact:true})).toBeVisible();
-  await expect(page.getByRole('button',{name:'Umstellen',exact:true})).toHaveCount(0);
-  await page.getByRole('button',{name:/Truppe ziehen/}).click();
-  const ready = page.getByRole('button',{name:/Bereit für die Welle/});
-  if (await ready.isVisible()) await ready.click();
-  await expect(page.locator('#wave')).toHaveText('1 / 8',{timeout:25_000});
-  await expect(page.locator('#kills')).not.toHaveText('0 besiegt',{timeout:25_000});
-  await page.screenshot({path:testInfo.outputPath('arena.png')});
-  await page.getByRole('button',{name:'Partie aufgeben',exact:true}).click();
-  await page.getByRole('button',{name:'Aufgeben',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Das Tor ist gefallen'})).toBeVisible({timeout:22_000});
-  await page.getByRole('button',{name:'Chronik öffnen'}).click();
-  await expect(page.getByRole('heading',{name:'Deine Chronik'})).toBeVisible();
-  await expect(page.locator('.history')).toContainText('Die Hetzjagd');
-  await expect(page.locator('.history')).toContainText(/\+\d+ EP/);
-  expect(failures.filter(error => !error.includes('control flow'))).toEqual([]);
+  try {
+    await signUp(page,testAccount('solo'));
+    await page.locator('#challenge').selectOption('rush');
+    await page.locator('#create-match').tap();
+    await expect(page.locator('#stage')).toHaveAttribute('data-rendered','true',{timeout:45_000});
+    await expect(page.locator('#stage')).toHaveAttribute('data-models','ready',{timeout:45_000});
+    await expect(page.locator('.build-slot:visible')).toHaveCount(32);
+    await expect(page.locator('#fullscreen-button')).toHaveAttribute('aria-pressed','true');
+    expect(await page.evaluate(() => document.querySelector('#match').getBoundingClientRect().height)).toBe(844);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(844);
+    await page.getByRole('button',{name:/Partie starten/}).tap();
+    await page.locator('[data-order=recruit]').tap();
+    await expect(page.locator('.reserve-card')).toHaveCount(1);
+    await expect(page.locator('.build-slot.filled')).toHaveCount(0);
+    await expect(page.locator('.reserve-card small')).toHaveText(/^(Common|Uncommon|Rare|Epic|Legendary)$/);
+    const chosen = page.locator('[data-slot="19"]');
+    await expect(chosen).toHaveClass(/target/);
+    await chosen.tap();
+    await expect(chosen).toHaveClass(/filled/);
+    await expect(page.locator('.reserve-card')).toHaveCount(0);
+    await page.getByRole('button',{name:'Umstellen',exact:true}).tap();
+    const target = page.locator('[data-slot="23"]');
+    await target.tap();
+    await expect(target).toHaveClass(/filled/);
+    await expect(chosen).not.toHaveClass(/filled/);
+    await page.getByRole('button',{name:'Bauen',exact:true}).tap();
+    await page.locator('.ritual-row').filter({hasText:'Ägäis-Balliste'}).getByRole('button',{name:/Bauen/}).tap();
+    await page.locator('[data-slot="16"]').tap();
+    await expect(page.locator('.formation-summary')).toHaveText(/Ägäis-Balliste/);
+    await expect(page.getByRole('button',{name:'Umstellen',exact:true})).toHaveCount(0);
+    await expect(page.locator('#wave')).toHaveText(/^[1-9]\d* \/ 16$/,{timeout:25_000});
+    await expect(page.locator('#kills')).not.toHaveText('0 besiegt',{timeout:25_000});
+    await page.screenshot({path:testInfo.outputPath('arena.png')});
+    await page.locator('[data-order=forfeit]').tap();
+    await page.locator('#leave-dialog').getByRole('button',{name:'Aufgeben',exact:true}).tap();
+    await expect(page.getByRole('heading',{name:'Die Bastion ist gefallen'})).toBeVisible({timeout:22_000});
+    await page.getByRole('button',{name:'Chronik öffnen'}).tap();
+    await expect(page.getByRole('heading',{name:'Deine Chronik'})).toBeVisible();
+    await expect(page.locator('.history')).toContainText('Die Hetzjagd');
+    await expect(page.locator('.history')).toContainText(/\+\d+ EP/);
+    expect(failures.filter(error => !error.includes('control flow'))).toEqual([]);
+  } finally {
+    await context.close();
+  }
 });
 
 test('an invitation grants only the chosen account and both browsers see the same game', async ({browser, baseURL}) => {
@@ -106,30 +127,31 @@ test('an invitation grants only the chosen account and both browsers see the sam
     await expect(host.locator('#connection')).toHaveText(/^(Live|Synchronisiert)$/,{timeout:35_000});
     await expect(guest.locator('#connection')).toHaveText(/^(Live|Synchronisiert)$/,{timeout:35_000});
     await host.getByRole('button',{name:/Partie starten/}).click();
-    const placed = await matchAction(hostContext,id,{type:'place',actor:'ballista',slot:2});
+    const placed = await matchAction(hostContext,id,{type:'place',actor:'ballista',slot:18});
     expect(placed.status()).toBe(200);
     const game = (await placed.json()).game;
     const actor = game.pieces.find(piece => piece.actor === 'ballista');
     expect((await matchAction(guestContext,id,{type:'move',id:actor.id,slot:14})).status()).toBe(409);
     const token = randomUUID();
-    expect((await matchAction(guestContext,id,{type:'recruit',slot:14},token)).status()).toBe(200);
-    const duplicate = await matchAction(guestContext,id,{type:'recruit',slot:14},token);
+    const drawn = await matchAction(guestContext,id,{type:'recruit'},token);
+    expect(drawn.status()).toBe(200);
+    const duplicate = await matchAction(guestContext,id,{type:'recruit'},token);
     expect(duplicate.status()).toBe(200);
-    expect((await duplicate.json()).game.pieces.length).toBe(2);
-    await expect(host.locator('[data-slot="2"]')).toHaveAttribute('aria-label',/Ägäis-Balliste/,{timeout:25_000});
-    await expect(guest.locator('[data-slot="2"]')).toHaveAttribute('aria-label',/Ägäis-Balliste/,{timeout:25_000});
+    const reserve = (await duplicate.json()).game.players[1].reserve;
+    expect(reserve.length).toBe(1);
+    expect((await matchAction(guestContext,id,{type:'deploy',id:reserve[0].id,slot:19})).status()).toBe(409);
+    expect((await matchAction(guestContext,id,{type:'deploy',id:reserve[0].id,slot:14})).status()).toBe(200);
+    await expect(host.locator('[data-slot="18"]')).toHaveAttribute('aria-label',/Ägäis-Balliste/,{timeout:25_000});
+    await expect(guest.locator('[data-slot="18"]')).toHaveAttribute('aria-label',/Ägäis-Balliste/,{timeout:25_000});
     await guest.reload();
     await guest.locator('[data-resume]').first().click();
     await expect(guest.locator('#stage-legend')).toContainText(target.name);
-    await expect(guest.locator('[data-slot="2"]')).toHaveAttribute('aria-label',/Ägäis-Balliste/,{timeout:25_000});
-    // Both canvases have shown the same board. Free the host's software renderer
-    // before checking that the guest can restart the first wave after a reload.
+    await expect(guest.locator('[data-slot="18"]')).toHaveAttribute('aria-label',/Ägäis-Balliste/,{timeout:25_000});
+    // Free the host's software renderer before verifying timed waves in the guest.
     await host.goto('/');
-    expect((await matchAction(hostContext,id,{type:'ready'})).status()).toBe(200);
-    await guest.getByRole('button',{name:'Bereit für die Welle',exact:true}).click();
-    await expect(guest.locator('#wave')).toHaveText(/^[1-9]\d* \/ 12$/,{timeout:30_000});
+    await expect(guest.locator('#wave')).toHaveText(/^[1-9]\d* \/ 30$/,{timeout:30_000});
     expect((await matchAction(hostContext,id,{type:'forfeit'})).status()).toBe(200);
-    await expect(guest.getByRole('heading',{name:'Das Tor ist gefallen'})).toBeVisible({timeout:20_000});
+    await expect(guest.getByRole('heading',{name:'Die Bastion ist gefallen'})).toBeVisible({timeout:20_000});
   } finally {
     await Promise.all([hostContext.close(),guestContext.close(),otherContext.close()]);
   }

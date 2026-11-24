@@ -2,6 +2,7 @@ use bevy::{
     animation::{
         AnimationPlayer,
         graph::{AnimationGraph, AnimationGraphHandle, AnimationNodeIndex},
+        transition::AnimationTransitions,
     },
     asset::{AssetMetaCheck, AssetPlugin},
     core_pipeline::tonemapping::Tonemapping,
@@ -10,16 +11,18 @@ use bevy::{
     prelude::*,
     render::camera::ScalingMode,
     scene::SceneInstanceReady,
-    window::{PresentMode, WindowPlugin},
+    window::{PresentMode, WindowPlugin, WindowResolution},
 };
-use pantheon_simulation::{self as sim, Game, Point, SLOTS};
+use pantheon_simulation::{self as sim, Game, Point};
 use serde::Serialize;
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
+    time::Duration,
 };
 use wasm_bindgen::prelude::*;
 
+mod circuit_art;
 mod scenery;
 use scenery::{Palette, Scenery};
 
@@ -31,24 +34,33 @@ thread_local! {
 struct Mailbox {
     game: Option<(String, Game)>,
     focus: Option<(usize, f32)>,
+    viewer: usize,
+}
+
+#[derive(Resource)]
+struct Graphics {
+    mobile: bool,
 }
 
 #[wasm_bindgen]
-pub fn play_arena() {
+pub fn play_arena(mobile: bool) {
     let mut app = App::new();
-    app.insert_resource(ClearColor(Color::srgb_u8(25, 70, 77)))
+    app.insert_resource(Graphics { mobile })
+        .insert_resource(ClearColor(Color::srgb_u8(25, 70, 77)))
         .insert_resource(AmbientLight {
             color: Color::srgb_u8(222, 232, 236),
             brightness: 210.,
             ..default()
         })
-        .insert_resource(bevy::pbr::DirectionalLightShadowMap { size: 1024 })
+        .insert_resource(bevy::pbr::DirectionalLightShadowMap { size: 768 })
         .init_resource::<Arena>()
         .add_plugins(
             DefaultPlugins
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         canvas: Some("#arena".into()),
+                        resolution: WindowResolution::new(1000., 700.)
+                            .with_scale_factor_override(if mobile { 1.0 } else { 1.16 }),
                         fit_canvas_to_parent: true,
                         prevent_default_event_handling: false,
                         present_mode: PresentMode::AutoVsync,
@@ -67,6 +79,7 @@ pub fn play_arena() {
             Update,
             (
                 pull_game,
+                orient_camera,
                 animate_figures,
                 animate_projectiles,
                 fade_fx,
@@ -74,6 +87,7 @@ pub fn play_arena() {
                 focus_radius,
                 mark_boss_zone,
                 project_slots,
+                report_fps,
             )
                 .chain(),
         );
@@ -92,9 +106,15 @@ pub fn set_room_state(room: &str, state: &str) -> bool {
 #[wasm_bindgen]
 pub fn set_board_focus(slot: i32, radius: f32) {
     MAIL.with(|mail| {
-        mail.borrow_mut().focus =
-            (slot >= 0 && (slot as usize) < SLOTS.len()).then_some((slot as usize, radius.max(0.)));
+        mail.borrow_mut().focus = (slot >= 0
+            && (slot as usize) < sim::tiles_for(sim::CIRCUIT_RULES).len())
+        .then_some((slot as usize, radius.max(0.)));
     });
+}
+
+#[wasm_bindgen]
+pub fn set_viewer(viewer: usize) {
+    MAIL.with(|mail| mail.borrow_mut().viewer = viewer.min(1));
 }
 
 fn event(name: &str, text: &str) {
@@ -124,6 +144,10 @@ struct BossMarker;
 struct Arena {
     theme: String,
     room: String,
+    rule_version: u8,
+    viewer: usize,
+    camera_configured: bool,
+    pressure: usize,
     scenery: Vec<Entity>,
     figures: HashMap<u32, Entity>,
     shots: HashMap<u32, Entity>,
@@ -148,6 +172,9 @@ struct Clips {
 struct Figure {
     asset: String,
     target: Vec3,
+    stride: Option<Stride>,
+    stack: u8,
+    size: f32,
     yaw: f32,
     enemy: bool,
     traveling: bool,
@@ -157,6 +184,19 @@ struct Figure {
     dying_until: Option<f64>,
     players: Vec<Entity>,
     active_clip: &'static str,
+}
+
+struct Stride {
+    lane: usize,
+    progress: f32,
+    speed: f32,
+    time: f64,
+}
+
+#[derive(Default)]
+struct FpsSample {
+    first: f64,
+    frames: u32,
 }
 
 #[derive(Component)]
@@ -213,6 +253,7 @@ fn setup(
     mut mats: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
     mut arena: ResMut<Arena>,
+    graphics: Res<Graphics>,
 ) {
     let shared = Shared {
         cube: meshes.add(Cuboid::new(1., 1., 1.)),
@@ -263,7 +304,7 @@ fn setup(
         DirectionalLight {
             color: Color::srgb_u8(255, 231, 190),
             illuminance: 8_600.,
-            shadows_enabled: true,
+            shadows_enabled: !graphics.mobile,
             shadow_normal_bias: 0.37,
             ..default()
         },
@@ -295,7 +336,7 @@ fn setup(
         ring(shared.line.clone(), shared.rays[5].clone()),
     ));
 
-    for enemy in &sim::catalog().enemies {
+    for enemy in sim::catalog().enemies.iter().take(3) {
         arena.assets.insert(
             enemy.id.clone(),
             asset_server.load(format!("models/{}.glb", enemy.id)),
@@ -326,6 +367,8 @@ fn pull_game(
     };
     let now = time.elapsed_secs_f64();
     if arena.room != room {
+        arena.camera_configured = false;
+        arena.ready = false;
         for (_, entity) in arena.figures.drain() {
             commands.entity(entity).despawn();
         }
@@ -335,32 +378,44 @@ fn pull_game(
         arena.room = room;
         arena.seen.clear();
     }
-    if arena.theme != game.theme {
+    if arena.theme != game.theme || arena.rule_version != game.rule_version {
         for ent in arena.scenery.drain(..) {
             commands.entity(ent).despawn();
         }
-        arena.scenery = Scenery::new(
-            &mut commands,
-            &mut meshes,
-            &mut mats,
-            &shared,
-            Palette::for_theme(&game.theme),
-        )
-        .build(&game.theme, &asset_server);
+        arena.scenery = if game.on_circuit() {
+            circuit_art::build(&mut commands, &mut meshes, &mut mats, &shared, &game.theme)
+        } else {
+            commands.insert_resource(ClearColor(Color::srgb_u8(25, 70, 77)));
+            Scenery::new(
+                &mut commands,
+                &mut meshes,
+                &mut mats,
+                &shared,
+                Palette::for_theme(&game.theme),
+            )
+            .build(&game.theme, &asset_server)
+        };
+        arena
+            .assets
+            .retain(|id, _| sim::actor(id).is_none_or(|actor| actor.theme == game.theme));
         for actor in sim::catalog()
             .actors
             .iter()
-            .filter(|actor| actor.theme == game.theme)
+            .filter(|a| a.theme == game.theme && a.kind == "troop" && a.rarity == 1)
         {
             arena
                 .assets
                 .entry(actor.id.clone())
                 .or_insert_with(|| asset_server.load(format!("models/{}.glb", actor.id)));
         }
+        arena.rule_version = game.rule_version;
+        arena.camera_configured = false;
         arena.theme = game.theme.clone();
         arena.projected = Vec2::ZERO;
     }
 
+    arena.pressure = game.enemies.len();
+    let tiles = game.tiles();
     let death: HashMap<_, _> = game
         .events
         .iter()
@@ -388,6 +443,7 @@ fn pull_game(
         }
         if let Some(e) = death.get(&id) {
             figure.target = p3(e.pos, 0.36);
+            figure.stride = None;
             figure.clip = "Death";
             figure.dying_until = Some(now + 1.23);
         } else {
@@ -397,9 +453,10 @@ fn pull_game(
     }
 
     for piece in &game.pieces {
-        let position = p3(SLOTS[piece.slot], 0.42);
+        let position = p3(tiles[piece.slot], 0.42);
         if let Some(entity) = arena.figures.get(&piece.id) {
             if let Ok(mut figure) = figures.get_mut(*entity) {
+                figure.stack = piece.stack;
                 if figure.target.distance(position) > 0.3 {
                     figure.yaw = facing(position - figure.target);
                     figure.target = position;
@@ -407,6 +464,10 @@ fn pull_game(
                 }
             }
         } else {
+            arena
+                .assets
+                .entry(piece.actor.clone())
+                .or_insert_with(|| asset_server.load(format!("models/{}.glb", piece.actor)));
             let entity = spawn_figure(
                 &mut commands,
                 &asset_server,
@@ -417,6 +478,17 @@ fn pull_game(
                 if piece.owner == 0 { -0.3 } else { 0.32 },
                 false,
             );
+            let stack = piece.stack;
+            let appear = if piece.tier > 1 { "Ascend" } else { "Spawn" };
+            commands
+                .entity(entity)
+                .queue(move |mut entity: EntityWorldMut| {
+                    if let Some(mut figure) = entity.get_mut::<Figure>() {
+                        figure.stack = stack;
+                        figure.clip = appear;
+                        figure.clip_until = now + 0.98;
+                    }
+                });
             commands.entity(entity).with_children(|parent| {
                 parent.spawn((
                     Mesh3d(shared.disk.clone()),
@@ -428,19 +500,50 @@ fn pull_game(
         }
     }
     for enemy in &game.enemies {
-        let position = p3(enemy.pos, 0.33);
+        let position = p3(enemy.pos, 0.36);
         let ahead = p3(
-            sim::path_pos(&game.theme, enemy.lane, enemy.progress + 0.32),
-            0.33,
+            sim::route_point(
+                game.rule_version,
+                &game.theme,
+                enemy.lane,
+                enemy.progress + 0.3,
+            ),
+            0.36,
         );
         let yaw = facing(ahead - position);
+        let mut speed = sim::enemy_kind(&enemy.kind).speed;
+        if game.challenge == "rush" {
+            speed *= 1.27;
+        }
+        if enemy.slow_until > game.tick {
+            speed *= 1. - enemy.slow;
+        }
+        if enemy.haste_until > game.tick {
+            speed *= 1.18;
+        }
+        if (enemy.kind == "titan" && enemy.hp < enemy.max_hp * 0.43)
+            || (enemy.kind == "moth" && enemy.progress > 12.)
+        {
+            speed *= 1.33;
+        }
+        let stride = Stride {
+            lane: enemy.lane,
+            progress: enemy.progress,
+            speed,
+            time: now,
+        };
         if let Some(entity) = arena.figures.get(&enemy.id) {
             if let Ok(mut figure) = figures.get_mut(*entity) {
                 figure.target = position;
                 figure.yaw = yaw;
+                figure.stride = Some(stride);
                 figure.traveling = true;
             }
         } else {
+            arena
+                .assets
+                .entry(enemy.kind.clone())
+                .or_insert_with(|| asset_server.load(format!("models/{}.glb", enemy.kind)));
             let entity = spawn_figure(
                 &mut commands,
                 &asset_server,
@@ -451,6 +554,13 @@ fn pull_game(
                 yaw,
                 true,
             );
+            commands
+                .entity(entity)
+                .queue(move |mut entity: EntityWorldMut| {
+                    if let Some(mut figure) = entity.get_mut::<Figure>() {
+                        figure.stride = Some(stride);
+                    }
+                });
             arena.figures.insert(enemy.id, entity);
         }
     }
@@ -471,7 +581,7 @@ fn pull_game(
         if let Some(entity) = arena.figures.get(&shot.source) {
             if let Ok(mut figure) = figures.get_mut(*entity) {
                 figure.yaw = facing(target - start);
-                if figure.clip != "Cast" || figure.clip_until <= now {
+                if !matches!(figure.clip, "Cast" | "Spawn" | "Ascend") || figure.clip_until <= now {
                     figure.clip = "Attack";
                     figure.active_clip = "";
                     figure.clip_until = now + 0.47;
@@ -480,7 +590,7 @@ fn pull_game(
         }
         let asset = match shot.attack.as_str() {
             "stone" | "guard" => "fx_spark",
-            "pierce" | "arrow" => "fx_bolt",
+            "pierce" | "arrow" | "shred" | "bleed" => "fx_bolt",
             "frost" => "fx_frost",
             _ => "fx_sun",
         };
@@ -538,8 +648,10 @@ fn pull_game(
                 if let Some(entity) = arena.figures.get(&effect.source) {
                     if let Ok(mut figure) = figures.get_mut(*entity) {
                         if figure.dying_until.is_none() {
-                            figure.clip = "Hit";
-                            figure.clip_until = now + 0.19;
+                            if figure.clip_until <= now || figure.clip == "Idle" {
+                                figure.clip = "Hit";
+                                figure.clip_until = now + 0.24;
+                            }
                         }
                     }
                 }
@@ -557,6 +669,9 @@ fn pull_game(
             }
             "death" => {
                 if !arena.figures.contains_key(&effect.source) {
+                    arena.assets.entry(effect.actor.clone()).or_insert_with(|| {
+                        asset_server.load(format!("models/{}.glb", effect.actor))
+                    });
                     let id = spawn_figure(
                         &mut commands,
                         &asset_server,
@@ -604,9 +719,29 @@ fn pull_game(
             "place" => (3, 0.64, 0.4, 5),
             "leak" => (5, 1.48, 0.61, 10),
             "boss" => (4, 1.48, 0.75, 9),
+            "stack" => (1, 0.6, 0.45, 6),
+            "ritual" => (4, 1.48, 1.07, 13),
+            "draw" => (3, 0.58, 0.36, 4),
+            "victory" => {
+                for piece in &game.pieces {
+                    if let Some(entity) = arena.figures.get(&piece.id) {
+                        if let Ok(mut figure) = figures.get_mut(*entity) {
+                            figure.clip = "Celebrate";
+                            figure.clip_until = now + 1.48;
+                        }
+                    }
+                }
+                (3, 2.25, 1.2, 19)
+            }
             "boss_impact" => (5, effect.power, 0.78, 15),
             _ => continue,
         };
+        if arena.pressure > 34
+            && matches!(effect.kind.as_str(), "impact" | "death")
+            && effect.id % 2 != 0
+        {
+            continue;
+        }
         burst(
             &mut commands,
             &shared,
@@ -637,6 +772,15 @@ fn spawn_figure(
     yaw: f32,
     enemy: bool,
 ) -> Entity {
+    let size = if arena.rule_version >= sim::CIRCUIT_RULES {
+        match sim::actor(id).map(|actor| actor.kind.as_str()) {
+            Some("building") => 1.0,
+            Some("hero") => 1.27,
+            _ => 1.21,
+        }
+    } else {
+        1.0
+    };
     let gltf = arena.assets.get(id).and_then(|handle| gltfs.get(handle));
     let scene = gltf
         .and_then(|asset| asset.default_scene.clone())
@@ -646,10 +790,15 @@ fn spawn_figure(
     commands
         .spawn((
             SceneRoot(scene),
-            Transform::from_translation(position).with_rotation(Quat::from_rotation_y(yaw)),
+            Transform::from_translation(position)
+                .with_rotation(Quat::from_rotation_y(yaw))
+                .with_scale(Vec3::splat(size)),
             Figure {
                 asset: id.into(),
                 target: position,
+                stride: None,
+                stack: 1,
+                size,
                 yaw,
                 enemy,
                 traveling: enemy,
@@ -667,6 +816,7 @@ fn spawn_figure(
 
 fn find_player(
     ready: Trigger<SceneInstanceReady>,
+    mut commands: Commands,
     mut figures: Query<&mut Figure>,
     children: Query<&Children>,
     animation: Query<&AnimationPlayer>,
@@ -678,6 +828,9 @@ fn find_player(
         .iter_descendants(ready.target())
         .filter(|child| animation.get(*child).is_ok())
         .collect();
+    for player in &figure.players {
+        commands.entity(*player).insert(AnimationTransitions::new());
+    }
 }
 
 fn play_clips(
@@ -686,7 +839,7 @@ fn play_clips(
     mut figures: Query<&mut Figure>,
     gltf: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    mut players: Query<&mut AnimationPlayer>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     time: Res<Time>,
 ) {
     let time = time.elapsed_secs_f64();
@@ -714,16 +867,26 @@ fn play_clips(
             else {
                 continue;
             };
-            let tracks: Vec<_> = ["Idle", "Walk", "Attack", "Cast", "Hit", "Death"]
-                .into_iter()
-                .filter_map(|name| {
-                    source
-                        .named_animations
-                        .get(name)
-                        .cloned()
-                        .map(|clip| (name, clip))
-                })
-                .collect();
+            let tracks: Vec<_> = [
+                "Idle",
+                "Walk",
+                "Attack",
+                "Cast",
+                "Hit",
+                "Death",
+                "Spawn",
+                "Ascend",
+                "Celebrate",
+            ]
+            .into_iter()
+            .filter_map(|name| {
+                source
+                    .named_animations
+                    .get(name)
+                    .cloned()
+                    .map(|clip| (name, clip))
+            })
+            .collect();
             if tracks.is_empty() {
                 continue;
             }
@@ -748,12 +911,19 @@ fn play_clips(
             .or_else(|| clips.tracks.get("Idle"))
         {
             for entity in &figure.players {
-                if let Ok(mut player) = players.get_mut(*entity) {
+                if let Ok((mut player, mut transitions)) = players.get_mut(*entity) {
                     commands
                         .entity(*entity)
                         .insert(AnimationGraphHandle(clips.graph.clone()));
-                    player.stop_all();
-                    let motion = player.play(*index);
+                    let motion = transitions.play(
+                        &mut player,
+                        *index,
+                        Duration::from_millis(match desired {
+                            "Attack" | "Hit" => 78,
+                            "Death" => 115,
+                            _ => 142,
+                        }),
+                    );
                     match desired {
                         "Attack" => {
                             motion.set_speed(1.52);
@@ -764,9 +934,11 @@ fn play_clips(
                         "Hit" => {
                             motion.set_speed(1.8);
                         }
-                        "Death" => {}
+                        "Death" | "Spawn" | "Ascend" | "Celebrate" => {}
                         "Walk" => {
-                            motion.repeat();
+                            motion
+                                .set_speed(if figure.enemy { 1.14 } else { 1.33 })
+                                .repeat();
                         }
                         _ => {
                             motion.repeat();
@@ -786,16 +958,35 @@ fn animate_figures(
     time: Res<Time>,
 ) {
     let now = time.elapsed_secs_f64();
-    let delta = time.delta_secs().min(0.05);
+    let delta = time.delta_secs().min(0.08);
+    let theme = arena.theme.clone();
+    let rules = arena.rule_version;
     arena.figures.retain(|_, entity| {
         if let Ok((mut figure, mut trans)) = figures.get_mut(*entity) {
             if figure.dying_until.is_some_and(|last| now >= last) {
                 commands.entity(*entity).despawn();
                 return false;
             }
-            let blend = 1. - (-delta * if figure.enemy { 7.2 } else { 12. }).exp();
+            let blend = 1. - (-delta * if figure.enemy { 16. } else { 13. }).exp();
             let previous = trans.translation;
-            trans.translation = previous.lerp(figure.target, blend);
+            let destination = if let Some(track) = &figure.stride {
+                let offset = ((now - track.time) as f32).clamp(0., 0.78) * track.speed;
+                let progress = track.progress + offset;
+                let pos = p3(sim::route_point(rules, &theme, track.lane, progress), 0.36);
+                let ahead = p3(
+                    sim::route_point(rules, &theme, track.lane, progress + 0.24),
+                    0.36,
+                );
+                if (ahead - pos).length_squared() > 0.004 {
+                    figure.yaw = facing(ahead - pos);
+                }
+                pos
+            } else {
+                figure.target
+            };
+            trans.translation = previous.lerp(destination, blend);
+            let scale = figure.size + f32::from(figure.stack.saturating_sub(1)) * 0.055;
+            trans.scale = trans.scale.lerp(Vec3::splat(scale), (delta * 9.).min(1.));
             trans.rotation = trans
                 .rotation
                 .slerp(Quat::from_rotation_y(figure.yaw), (delta * 11.).min(1.0));
@@ -906,6 +1097,7 @@ fn fade_fx(
 }
 
 fn focus_radius(
+    arena: Res<Arena>,
     mut rings: Query<(&mut Transform, &mut Visibility), (With<RangeRing>, Without<FocusMarker>)>,
     mut markers: Query<(&mut Transform, &mut Visibility), (With<FocusMarker>, Without<RangeRing>)>,
 ) {
@@ -915,10 +1107,14 @@ fn focus_radius(
     let Ok((mut marker, mut marker_vis)) = markers.single_mut() else {
         return;
     };
-    if let Some((slot, radius)) = MAIL.with(|mail| mail.borrow().focus) {
-        ring.translation = p3(SLOTS[slot], 0.47);
+    let tiles = sim::tiles_for(arena.rule_version);
+    if let Some((slot, radius)) = MAIL
+        .with(|mail| mail.borrow().focus)
+        .filter(|(slot, _)| *slot < tiles.len())
+    {
+        ring.translation = p3(tiles[slot], 0.47);
         ring.scale = Vec3::new(radius, 0.28, radius);
-        marker.translation = p3(SLOTS[slot], 0.50);
+        marker.translation = p3(tiles[slot], 0.50);
         marker.scale = Vec3::new(0.70, 0.40, 0.70);
         *marker_vis = Visibility::Visible;
         *ring_vis = if radius > 0. {
@@ -951,6 +1147,61 @@ fn mark_boss_zone(
     }
 }
 
+fn orient_camera(
+    mut arena: ResMut<Arena>,
+    mut query: Query<(&mut Transform, &mut Projection), With<ArenaCamera>>,
+) {
+    let viewer = MAIL.with(|mail| mail.borrow().viewer);
+    if arena.camera_configured && arena.viewer == viewer {
+        return;
+    }
+    if arena.theme.is_empty() {
+        return;
+    }
+    let Ok((mut transform, mut projection)) = query.single_mut() else {
+        return;
+    };
+    if arena.rule_version >= sim::CIRCUIT_RULES {
+        let side = if viewer == 0 { 1. } else { -1. };
+        *transform =
+            Transform::from_xyz(0.32 * side, 26.8, 19.1 * side).looking_at(Vec3::ZERO, Vec3::Y);
+        *projection = Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::AutoMin {
+                min_width: 15.9,
+                min_height: 17.6,
+            },
+            ..OrthographicProjection::default_3d()
+        });
+    } else {
+        *transform =
+            Transform::from_xyz(3.3, 26.7, 27.5).looking_at(Vec3::new(0., -0.12, 0.1), Vec3::Y);
+        *projection = Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::AutoMin {
+                min_width: 29.,
+                min_height: 18.25,
+            },
+            ..OrthographicProjection::default_3d()
+        });
+    }
+    arena.camera_configured = true;
+    arena.viewer = viewer;
+    arena.projected = Vec2::ZERO;
+}
+
+fn report_fps(time: Res<Time<Real>>, mut sample: Local<FpsSample>) {
+    let now = time.elapsed_secs_f64();
+    sample.frames += 1;
+    let time_passed = now - sample.first;
+    if time_passed >= 1.5 {
+        event(
+            "pantheon-frame-rate",
+            &format!("{:.1}", f64::from(sample.frames) / time_passed),
+        );
+        sample.frames = 0;
+        sample.first = now;
+    }
+}
+
 #[derive(Serialize)]
 struct ProjectionData {
     width: f32,
@@ -976,12 +1227,13 @@ fn project_slots(
     if size == arena.projected && now - arena.projection_sent < 1.0 {
         return;
     }
-    let positions: Vec<_> = SLOTS
+    let tiles = sim::tiles_for(arena.rule_version);
+    let positions: Vec<_> = tiles
         .iter()
         .filter_map(|&point| camera.world_to_viewport(transform, p3(point, 0.57)).ok())
         .map(|pos| [pos.x, pos.y])
         .collect();
-    if positions.len() != SLOTS.len() {
+    if positions.len() != tiles.len() {
         return;
     }
     if let Ok(text) = serde_json::to_string(&ProjectionData {

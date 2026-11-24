@@ -2,7 +2,11 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/assets/icons/apple.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#10272a">
   <meta name="description" content="Pantheon Defense, ein 3D-Tower-Defense für Solo und Koop. Rekrutiere, verschmelze und verteidige die Tore der Antike.">
   <title>Pantheon Defense</title>
@@ -36,7 +40,7 @@
         <div class="hero-copy">
           <p class="kicker"><span aria-hidden="true">✦</span> Solo und Koop Tower Defense</p>
           <h1 id="hero-title">Das Tor<br>der Ägäis</h1>
-          <p id="hero-description">Zieh deine Truppen, schmiede stärkere Ränge und halte die anrückenden Wellen auf. Allein oder zu zweit.</p>
+          <p id="hero-description">Zieh Truppen, setze sie auf dein Brett und entwickle Dreierstapel zu stärkeren Seltenheiten. Spiel allein oder im Zweier-Koop.</p>
           <div class="hero-actions">
             <button class="primary" id="hero-play"><span aria-hidden="true">▸</span> Partie vorbereiten</button>
             <button class="quiet" data-tab="collection">Sammlung ansehen <span aria-hidden="true">›</span></button>
@@ -95,7 +99,9 @@
     <div class="match-bar">
       <button class="quiet" id="back-to-hub">‹ Bastion</button>
       <div class="match-title"><h1 id="match-map"></h1><span id="match-type"></span></div>
-      <div class="connection" id="connection"><i></i><span>Verbindet</span></div>
+      <div class="match-tools"><div class="connection" id="connection"><i></i><span>Verbindet</span></div>
+         <button class="fullscreen-button" id="fullscreen-button" aria-pressed="false" title="Vollbild öffnen" type="button">
+           <span class="screen-icon" aria-hidden="true"></span></button></div>
     </div>
     <div class="match-layout">
       <section class="stage" id="stage" aria-label="Dreidimensionales Spielfeld">
@@ -103,12 +109,14 @@
         <div id="slot-overlay" class="slot-overlay" aria-label="Bauplätze und Truppen"></div>
         <div id="render-notice" class="render-notice" hidden>Das Spielfeld wird geladen …</div>
         <div class="battle-meter" id="battle-meter">
-          <div><span>Torleben</span><strong id="life"></strong><meter id="life-meter" min="0" max="22" value="22"></meter></div>
+          <div><span id="life-label">Torleben</span><strong id="life"></strong><meter id="life-meter" min="0" max="22" value="22"></meter></div>
           <div><span>Welle</span><strong id="wave"></strong><small id="wave-phase"></small></div>
           <div class="gold-stat"><span>Gold</span><strong id="gold"></strong><small id="kills"></small></div>
+          <div class="essence-stat" id="essence-stat" hidden><span>Essenz</span><strong id="essence"></strong><small aria-hidden="true">✦</small></div>
         </div>
         <div class="boss-health" id="boss-health" hidden></div>
         <div class="scene-note" id="scene-note" hidden></div>
+        <div class="draw-reveal" id="draw-reveal" role="status" aria-live="polite" hidden></div>
         <div class="stage-legend" id="stage-legend"></div>
       </section>
 
@@ -150,6 +158,15 @@
       <h2>Partie aufgeben?</h2>
       <p id="leave-note">Der aktuelle Wellenstand fließt in die Chronik ein.</p>
       <div class="dialog-actions"><button class="quiet" value="cancel">Weiterspielen</button><button class="primary" value="confirm">Aufgeben</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="install-dialog" class="dialog">
+    <form method="dialog">
+      <button class="dialog-close" aria-label="Schließen">×</button>
+      <h2>Auf dem Handy im Vollbild</h2>
+      <p>Auf dem iPhone wählst du in Safari <strong>Teilen › Zum Home-Bildschirm › Als Web-App öffnen</strong>. Starte das Spiel anschließend über das Pantheon-Symbol.</p>
+      <button id="install-app" class="primary" type="button" hidden>Spiel installieren</button>
     </form>
   </dialog>
 

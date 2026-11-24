@@ -63,7 +63,7 @@ export async function createMatch(handle, data) {
   const id = randomUUID();
   const token = duo ? randomBytes(24).toString('base64url') : undefined;
   const game = JSON.parse(core.create_game(JSON.stringify({
-    theme: theme.id, challenge: challenge.id, levels: guest ? [host.level, guest.level] : [host.level],
+    rule_version: 2, theme: theme.id, challenge: challenge.id, levels: guest ? [host.level, guest.level] : [host.level],
     masteries: guest ? [host.masteries, guest.masteries] : [host.masteries],
     seed: randomBytes(4).readUInt32LE(),
   })));
@@ -151,13 +151,14 @@ export async function board(handle, id) {
 }
 
 export async function act(handle, id, data) {
-  await getRoom(id);
+  if (!roomId.test(id ?? '')) throw new HttpError(404, 'Diese Partie gibt es nicht.');
   const command = data.command;
   const nonce = data.nonce;
   if (!command || typeof command.type !== 'string' || !/^[a-f0-9-]{36}$/.test(nonce ?? '')) {
     throw new HttpError(400, 'Die Aktion ist ungültig.');
   }
   const room = await mutate(key(id), saved => {
+    if (!saved) throw new HttpError(404, 'Diese Partie gibt es nicht.');
     const player = playerIndex(saved, handle);
     const receipt = `${player}:${nonce}`;
     if (saved.receipts.includes(receipt)) return undefined;

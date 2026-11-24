@@ -6,22 +6,25 @@ import core from '../server/generated/simulation.js';
 const catalog = JSON.parse(readFileSync(new URL('../public/assets/catalog.json', import.meta.url),'utf8'));
 const assets = new URL('../public/assets/models/', import.meta.url);
 
-function clipNames(id) {
+function model(id) {
   const data = readFileSync(new URL(`${id}.glb`,assets));
   assert.equal(data.toString('ascii',0,4),'glTF',id);
-  const json = JSON.parse(data.toString('utf8',20,20+data.readUInt32LE(12)));
-  return new Set(json.animations?.map(clip => clip.name) ?? []);
+  return JSON.parse(data.toString('utf8',20,20+data.readUInt32LE(12)));
 }
 
 test('exported Blender actors include the clips used by Bevy', () => {
-  for (const actor of catalog.actors) {
-    const names = clipNames(actor.id);
-    for (const clip of ['Idle','Attack','Cast']) assert.ok(names.has(clip), `${actor.id}: ${clip}`);
-    if (actor.kind !== 'building') assert.ok(names.has('Walk'),actor.id);
-  }
-  for (const actor of catalog.enemies) {
-    const names = clipNames(actor.id);
-    for (const clip of ['Walk','Hit','Death']) assert.ok(names.has(clip), `${actor.id}: ${clip}`);
+  for (const actor of [...catalog.actors,...catalog.enemies]) {
+    const asset=model(actor.id);
+    const clips=new Set(asset.animations.map(clip=>clip.name));
+    const needed=actor.kind==='building'
+      ? ['Idle','Attack','Cast']
+      : ['Idle','Walk','Attack','Cast','Hit','Death','Spawn','Ascend','Celebrate'];
+    for (const clip of needed) assert.ok(clips.has(clip),`${actor.id}: ${clip}`);
+    if (actor.kind!=='building') {
+      assert.equal(asset.skins.length,1,actor.id);
+      assert.equal(asset.meshes.length,1,actor.id);
+      assert.equal(asset.meshes[0].primitives.length,1,actor.id);
+    }
   }
 });
 
