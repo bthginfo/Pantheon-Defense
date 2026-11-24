@@ -79,7 +79,7 @@ export async function register(req, res, data) {
   const handle = normalizedHandle(data.handle);
   const name = typeof data.name === 'string' ? data.name.trim().normalize('NFC') : '';
   const password = data.password;
-  if (!validHandle(handle)) throw new HttpError(400, 'Der Rufname braucht 3 bis 20 Zeichen. Erlaubt sind Buchstaben, Ziffern und _.');
+  if (!validHandle(handle)) throw new HttpError(400, 'Wähle einen Rufnamen mit 3 bis 20 Zeichen. Verwende Buchstaben, Ziffern oder Unterstriche.');
   if (name.length < 2 || name.length > 30 || /[\x00-\x1f\x7f]/.test(name)) throw new HttpError(400, 'Gib einen Anzeigenamen mit 2 bis 30 Zeichen ein.');
   if (typeof password !== 'string' || password.length < 10 || password.length > 128) {
     throw new HttpError(400, 'Das Passwort braucht mindestens 10 Zeichen.');
@@ -207,7 +207,7 @@ export async function changeFieldSign(handle, { id, action, expected }, signs) {
       return (account.fieldSign ?? null) === id ? undefined : { ...account, fieldSign: id };
     }
     if (action !== 'forge') throw new HttpError(400, 'Diese Feldzeichen-Aktion gibt es nicht.');
-    if (expected !== rank || rank >= 2) throw new HttpError(409, 'Der Rang dieses Feldzeichens hat sich geändert.');
+    if (expected !== rank || rank >= 2) throw new HttpError(409, 'Die Stufe dieses Feldzeichens hat sich geändert.');
     const material = rank === 0 ? 'runedust' : 'cores';
     const price = rank === 0 ? definition.forge : definition.awaken;
     const balance = account.materials?.[material] ?? 0;

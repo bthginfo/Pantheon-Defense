@@ -6,10 +6,16 @@ export const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({
 }[c]));
 export const portrait = (id, extra = '') => `<img class="portrait ${extra}" src="/assets/portraits/${id}.png" alt="" loading="lazy">`;
 export const numeral = value => ['', 'I', 'II', 'III', 'IV', 'V'][value] ?? value;
+export const rarities = ['', 'Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
 export const number = value => new Intl.NumberFormat('de-DE').format(value);
 export const price = (rank, tier) => 55 + rank * 32 + (tier - 1) * 18;
-export const pieceLabel = (entry, piece) => `${entry.name}, Rang ${numeral(piece.tier)}, Stufe ${piece.rank}`;
-export const groupNames = { troop: 'Truppen', building: 'Gebäude', hero: 'Helden' };
+export function pieceLabel(entry, piece, circuit) {
+  const title = circuit ? ({ troop: rarities[piece.tier], hero: 'Held', building: 'Gebäude' })[entry.kind]
+    : `Rang ${numeral(piece.tier)}`;
+  const count = circuit && piece.stack > 1 ? `, ${piece.stack} Einheiten` : '';
+  return `${entry.name}, ${title}, Stufe ${piece.rank}${count}`;
+}
+export const groupNames = { troop: 'Einheiten', building: 'Gebäude', hero: 'Helden' };
 export const themeHeroes = { aegean: ['thekla','Thekla','Phalanx-Hauptfrau'], rome: ['marcus','Marcus','Kastellmeister'], japan: ['akari','Akari','Schreinwächterin'] };
 export const colorThemes = { aegean: '#dba864', rome: '#e5785f', japan: '#8dccb3' };
 
@@ -35,7 +41,7 @@ export function signCard(sign, account) {
       : `+${Math.round(sign.boss_damage[index] * 100)} % Schaden gegen Bosse`;
   return `<article class="sign-card ${equipped ? 'equipped' : ''}">
     <h3>${esc(sign.name)}</h3><p>${effect(rank === 2 ? 1 : 0)}
-    ${rank === 1 ? `<small>Erweckt · ${effect(1)}</small>` : ''}</p>
+    ${rank === 1 ? `<small>Nach dem Erwecken · ${effect(1)}</small>` : ''}</p>
     <div class="sign-actions">
       ${rank < 2 ? `<button class="minibutton" data-sign="${sign.id}" data-sign-action="forge"
         ${account.materials?.[material] >= price ? '' : 'disabled'}>${rank === 0 ? 'Schmieden' : 'Erwecken'} · ${price} ${quantityLabel(material, price)}</button>` : ''}
@@ -48,13 +54,13 @@ export function actorCard(actor, level, mastery, account) {
   const locked = actor.unlock > level;
   const payment = mastery < 3 ? masteryPayment(actor.kind, mastery, account?.materials, account?.seals) : null;
   return `<article class="actor-card ${locked ? 'locked' : ''}" data-rarity="${actor.rarity??0}" style="--actor-color:${actor.color}">
-    <div class="card-image">${portrait(actor.id)}<span>${locked ? `Profilstufe ${actor.unlock}` : actor.kind==='troop'?['','Common','Uncommon','Rare','Epic','Legendary'][actor.rarity]:esc(actor.role)}</span></div>
+    <div class="card-image">${portrait(actor.id)}<span>${locked ? `Ab Profilstufe ${actor.unlock}` : actor.kind==='troop'?rarities[actor.rarity]:esc(actor.role)}</span></div>
     <div class="card-body"><h3>${esc(actor.name)}</h3><p>${esc(actor.note)}</p>
-      ${!locked ? `<small>${actor.damage} Schaden · ${actor.range.toLocaleString('de-DE')} Reichweite</small>` : ''}
+      ${!locked ? `<small>${actor.damage} Grundschaden · ${actor.range.toLocaleString('de-DE')} Reichweite</small>` : ''}
       ${account && !locked ? `<div class="mastery-row"><span>Meisterschaft ${mastery}/3
         ${mastery ? `<small>+${mastery*7} % Schaden</small>` : ''}</span>
         <button class="minibutton" data-mastery="${actor.id}" ${payment?.affordable ? '' : 'disabled'}>
-          ${payment ? `${payment.amount} ${quantityLabel(payment.material, payment.amount)} einsetzen` : 'Vollendet'}</button></div>` : ''}
+          ${payment ? `Aufwerten · ${payment.amount} ${quantityLabel(payment.material, payment.amount)}` : 'Höchste Meisterschaft'}</button></div>` : ''}
     </div>
   </article>`;
 }

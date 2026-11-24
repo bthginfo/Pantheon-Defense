@@ -8,7 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#10272a">
-  <meta name="description" content="Pantheon Defense, ein 3D-Tower-Defense für Solo und Koop. Rekrutiere, verschmelze und verteidige die Tore der Antike.">
+  <meta name="description" content="Rekrutiere Einheiten, beschwöre Helden und verteidige die Tore der Antike. Ein 3D-Tower-Defense für Solo und Koop.">
   <title>Pantheon Defense</title>
   <link rel="icon" href="/assets/portraits/thekla.png" type="image/png">
 </head>
@@ -40,7 +40,7 @@
         <div class="hero-copy">
           <p class="kicker"><span aria-hidden="true">✦</span> Solo und Koop Tower Defense</p>
           <h1 id="hero-title">Das Tor<br>der Ägäis</h1>
-          <p id="hero-description">Zieh Truppen, setze sie auf dein Brett und entwickle Dreierstapel zu stärkeren Seltenheiten. Spiel allein oder im Zweier-Koop.</p>
+          <p id="hero-description">Rekrutiere Einheiten, stelle Trupps zusammen und verteidige den Rundkurs. Spiele allein oder zu zweit.</p>
           <div class="hero-actions">
             <button class="primary" id="hero-play"><span aria-hidden="true">▸</span> Partie vorbereiten</button>
             <button class="quiet" data-tab="collection">Sammlung ansehen <span aria-hidden="true">›</span></button>
@@ -51,7 +51,7 @@
 
       <section class="preparation" id="preparation" aria-labelledby="preparation-title">
         <div class="section-heading">
-          <div><p class="kicker">Schauplatz wählen</p><h2 id="preparation-title">Die nächste Partie</h2></div>
+          <h2 id="preparation-title">Partie vorbereiten</h2>
           <div class="segment" aria-label="Spielmodus">
             <button data-mode="solo" aria-pressed="true">Solo</button>
             <button data-mode="duo" aria-pressed="false">Zu zweit</button>
@@ -65,26 +65,25 @@
               <div id="difficulty-list" aria-labelledby="difficulty-label" role="group"></div>
               <p class="hint" id="difficulty-detail" aria-live="polite"></p>
             </div>
-            <label id="challenge-label" for="challenge">Herausforderung</label>
+            <label id="challenge-label" for="challenge">Spielvariante</label>
             <select id="challenge"></select>
             <p class="hint" id="challenge-detail"></p>
             <div id="friend-row" hidden>
               <label for="friend">Rufname deines Mitspielers</label>
               <input id="friend" name="friend" placeholder="z. B. akari" autocomplete="off" maxlength="20" spellcheck="false">
-              <p class="hint">Der Link ist an dieses Konto gebunden.</p>
+              <p class="hint">Du erstellst eine Einladung für dieses Konto.</p>
             </div>
-            <button class="primary" id="create-match">Solo-Partie öffnen <span aria-hidden="true">›</span></button>
+            <button class="primary" id="create-match">Solo-Partie erstellen <span aria-hidden="true">›</span></button>
           </section>
         </div>
         <section id="recent-block" class="recent" hidden aria-labelledby="recent-title">
-          <h3 id="recent-title">Letzte Spielräume</h3>
+          <h3 id="recent-title">Letzte Partien</h3>
           <div id="recent"></div>
         </section>
       </section>
     </div>
 
     <section class="subpage" id="collection" hidden aria-labelledby="collection-title">
-      <p class="kicker">Truppen, Bauten und Helden</p>
       <h1 id="collection-title">Deine Sammlung</h1>
       <div class="section-heading filter-heading">
         <p id="collection-level"></p>
@@ -93,14 +92,13 @@
       <dl id="material-balances" class="material-balances" aria-label="Material für Meisterschaften" hidden></dl>
       <section id="field-signs" class="field-signs" aria-labelledby="field-signs-title" hidden>
         <h2 id="field-signs-title">Feldzeichen</h2>
-        <p class="hint">Verdiene Runenstaub ab Schwer und Urkerne ab Hölle. Nimm ein Feldzeichen pro Partie mit.</p>
+        <p class="hint">Schmiede Feldzeichen mit Runenstaub ab Schwer und erwecke sie mit Urkernen ab Hölle. Du kannst ein Feldzeichen pro Partie ausrüsten.</p>
         <div id="field-sign-list"></div>
       </section>
       <div class="cards" id="actor-cards"></div>
     </section>
 
     <section class="subpage" id="chronicle" hidden aria-labelledby="chronicle-title">
-      <p class="kicker">Profilfortschritt</p>
       <h1 id="chronicle-title">Deine Chronik</h1>
       <div id="chronicle-content"></div>
     </section>
@@ -110,20 +108,21 @@
     <div class="match-bar">
       <button class="quiet" id="back-to-hub">‹ Bastion</button>
       <div class="match-title"><h1 id="match-map"></h1><span id="match-type"></span></div>
-      <div class="match-tools"><div class="connection" id="connection"><i></i><span>Verbindet</span></div>
+      <div class="match-tools"><div class="connection" id="connection"><i></i><span>Verbindet …</span></div>
          <button class="fullscreen-button" id="fullscreen-button" aria-pressed="false" title="Vollbild öffnen" type="button">
            <span class="screen-icon" aria-hidden="true"></span></button></div>
     </div>
     <div class="match-layout">
       <section class="stage" id="stage" aria-label="Dreidimensionales Spielfeld">
         <canvas id="arena" aria-label="Pantheon Defense Spielfeld"></canvas>
-        <div id="slot-overlay" class="slot-overlay" aria-label="Bauplätze und Truppen"></div>
+        <div id="slot-overlay" class="slot-overlay" aria-label="Felder, Trupps und Gebäude"></div>
+        <div class="drag-figure" id="drag-figure" aria-hidden="true" hidden></div>
         <div id="render-notice" class="render-notice" hidden>Das Spielfeld wird geladen …</div>
         <div class="battle-meter" id="battle-meter">
           <div><span id="life-label">Torleben</span><strong id="life"></strong><meter id="life-meter" min="0" max="22" value="22"></meter></div>
-          <div><span>Welle</span><strong id="wave"></strong><small id="wave-phase"></small></div>
-          <div class="gold-stat"><span>Gold</span><strong id="gold"></strong><small id="kills"></small></div>
-          <div class="essence-stat" id="essence-stat" hidden><span>Essenz</span><strong id="essence"></strong><small aria-hidden="true">✦</small></div>
+          <div class="wave-stat"><span>Welle</span><strong id="wave"></strong><small id="wave-phase"></small></div>
+          <div class="gold-stat"><span><i class="battle-icon" data-icon="gold" aria-hidden="true"></i> Gold</span><strong id="gold"></strong><small id="kills"></small></div>
+          <div class="essence-stat" id="essence-stat" hidden><span><i class="battle-icon" data-icon="essence" aria-hidden="true"></i> Essenz</span><strong id="essence"></strong></div>
           <aside class="battle-notices">
             <p class="wave-reward" id="wave-reward" role="status" hidden></p>
             <div class="boss-health" id="boss-health" hidden></div>
@@ -143,10 +142,9 @@
   <dialog id="account-dialog" class="dialog">
     <form id="account-form">
       <button type="button" class="dialog-close" data-close="account-dialog" aria-label="Schließen">×</button>
-      <p class="kicker">Dein Fortschritt</p>
       <h2 id="account-title">Anmelden</h2>
       <p class="hint" id="account-note">Mit deinem Rufnamen können Freunde dich einladen.</p>
-      <label id="name-label" hidden>Anzeige­name<input name="name" autocomplete="nickname" maxlength="30"></label>
+      <label id="name-label" hidden>Anzeigename<input name="name" autocomplete="nickname" maxlength="30"></label>
       <label>Rufname<input name="handle" autocomplete="username" required minlength="3" maxlength="20" autocapitalize="none" spellcheck="false"></label>
       <label>Passwort<input name="password" type="password" autocomplete="current-password" required minlength="10" maxlength="128"></label>
       <p data-error id="account-error" role="alert"></p>
@@ -160,7 +158,7 @@
       <button type="button" class="dialog-close" id="dismiss-invite" aria-label="Später">×</button>
       <p class="kicker">Koop-Partie</p>
       <h2>Du bist eingeladen</h2>
-      <p id="invite-description">Melde dich mit dem eingeladenen Konto an, um dem Spielraum beizutreten.</p>
+      <p id="invite-description">Melde dich mit dem eingeladenen Konto an.</p>
       <p data-error id="invite-error" role="alert"></p>
       <button class="primary" id="accept-invite">Einladung annehmen</button>
     </div>
@@ -168,9 +166,8 @@
 
   <dialog id="leave-dialog" class="dialog">
     <form method="dialog">
-      <p class="kicker">Partie</p>
       <h2>Partie aufgeben?</h2>
-      <p id="leave-note">Der aktuelle Wellenstand fließt in die Chronik ein.</p>
+      <p id="leave-note">Du erhältst EP für die erreichte Welle.</p>
       <div class="dialog-actions"><button class="quiet" value="cancel">Weiterspielen</button><button class="primary" value="confirm">Aufgeben</button></div>
     </form>
   </dialog>

@@ -1,6 +1,5 @@
-import { esc, portrait, price } from './presentation.js';
+import { esc, portrait, price, rarities } from './presentation.js';
 
-export const rarities = ['', 'Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
 export const isCircuit = game => (game?.rule_version ?? 1) >= 2;
 export const ownerOf = (game, slot) => isCircuit(game) ? 1 - Math.floor(slot / 16) : Math.floor(slot / 12);
 export const drawPrice = (game, player) => Math.min(118,(game.challenge === 'levy' ? 21 : 26) + player.recruits * 2);
@@ -9,10 +8,20 @@ export const pressureLimit = (game, difficulty) => ({scarcity:34,eclipse:43}[gam
 const disabled = off => off ? 'disabled' : '';
 const rarityClass = tier => `rarity-${tier}`;
 const a = esc;
+const dockSections = new WeakMap();
+
+const panes = [
+  ['recruit', 'Reserve', 'reserve'], ['oracle', 'Orakel', 'oracle'], ['hero', 'Helden', 'hero'],
+  ['building', 'Bauen', 'building'], ['smith', 'Schmiede', 'smith'],
+];
+
+function icon(name) {
+  return `<i class="battle-icon" data-icon="${name}" aria-hidden="true"></i>`;
+}
 
 function reservePanel(player,pending,actors) {
   const recruits = player.reserve ?? [];
-  if (!recruits.length) return '<p class="tray-empty">Zieh eine Truppe. Wähle anschließend ihr Feld auf dem Brett.</p>';
+  if (!recruits.length) return '<p class="tray-empty">Rekrutiere eine Einheit oder tippe einen Trupp auf dem Spielfeld an.</p>';
   return `<div class="reserve-list" aria-label="Deine Rekruten">${recruits.map(recruit => {
     const definition = actors.get(recruit.actor);
     const picked = pending?.type === 'deploy' && pending.id === recruit.id;
@@ -20,14 +29,14 @@ function reservePanel(player,pending,actors) {
        aria-label="${a(definition.name)} platzieren"><span>${portrait(definition.id)}</span>
        <strong>${a(definition.name)}</strong><small>${rarities[recruit.tier]}</small></button>`;
   }).join('')}</div>
-  ${pending?.type === 'deploy' ? '<div class="reserve-actions"><span>Wähle ein markiertes Feld.</span><button data-order="release" class="text-button">Rekrut freigeben</button></div>' : ''}
+  ${pending?.type === 'deploy' ? '<div class="reserve-actions"><span>Tippe auf ein markiertes Feld.</span><button data-order="release" class="text-button">Rekrut entlassen</button></div>' : ''}
   `;
 }
 
 function rewards(player) {
   return `<div class="round-goals">
-    <span>${Math.min(player.recruits,5)} / 5 Ziehungen <b>✦ 2</b></span>
-    <span>${Math.min(player.merges,2)} / 2 Verschmelzungen <b>✦ 2</b></span>
+    <span>${Math.min(player.recruits,5)} / 5 Rekrutierungen <b>+2 Essenz</b></span>
+    <span>${Math.min(player.merges,2)} / 2 Verschmelzungen <b>+2 Essenz</b></span>
   </div>`;
 }
 
@@ -36,8 +45,8 @@ function oracle(game,player,level,catalog) {
   return `<div class="oracle-options">${ratios.map(([tier,cost,chance]) => {
     const unlock = catalog.actors.some(entry => entry.theme===game.theme && entry.kind==='troop' && entry.rarity===tier && entry.unlock<=level);
     return `<button class="ritual-chip ${rarityClass(tier)}" data-oracle="${tier}" ${disabled(!unlock || player.essence < cost || player.reserve.length >= 6)}>
-      <strong>${rarities[tier]}</strong><small>${unlock ? `${chance} % · ✦ ${cost}` : 'Gesperrt'}</small></button>`;
-  }).join('')}</div><p class="tray-help">Essenz gibt es durch Siege über Bosse, Wellen und Aufträge.</p>`;
+      <strong>${rarities[tier]}</strong><small>${unlock ? `${chance} % Erfolg · ${cost} Essenz` : 'Noch gesperrt'}</small></button>`;
+  }).join('')}</div><p class="tray-help">Setze Essenz für eine Chance auf eine seltenere Einheit ein.</p>`;
 }
 
 function heroPanel(room,player,level,catalog,actors) {
@@ -53,19 +62,19 @@ function heroPanel(room,player,level,catalog,actors) {
     return `<div class="ritual-row">${portrait(hero.id)}
       <div><strong>${a(hero.name)}</strong><small>${a(hero.role)}${blocked ? ` · Stufe ${hero.unlock}` : ''}</small>
       <div class="ingredient-list">${entries}</div></div>
-      <button class="minibutton" data-ritual="${hero.id}" ${disabled(blocked || !ready || active>=3 || player.gold<65)}>Rufen · 65</button>
+      <button class="minibutton" data-ritual="${hero.id}" ${disabled(blocked || !ready || active>=3 || player.gold<65)}>Beschwören · 65 Gold</button>
       </div>`;
   }).join('')}</div>`;
 }
 
 function buildPanel(game,player,level,catalog,pending) {
   const owned=game.pieces.filter(p=>p.owner===game.players.indexOf(player) && catalog.actors.find(a=>a.id===p.actor)?.kind==='building').length;
-  if (game.challenge==='levy') return '<p class="tray-empty">In der Würfelwache verteidigen Truppen und Helden den Rundkurs.</p>';
+  if (game.challenge==='levy') return '<p class="tray-empty">In der Würfelwache stehen Einheiten und Helden zur Verfügung.</p>';
   return `<div class="ritual-list">${catalog.actors.filter(entry=>entry.theme===game.theme && entry.kind==='building').map(actor=>{
     const picked=pending?.actor===actor.id;
     return `<div class="ritual-row">${portrait(actor.id)}<div><strong>${a(actor.name)}</strong><small>${a(actor.role)} · ${owned}/2 Gebäude</small></div>
       <button class="minibutton" data-place="${actor.id}" aria-pressed="${picked}"
-       ${disabled(actor.unlock>level || player.gold<actor.cost || owned>=2)}>Bauen · ${actor.cost}</button></div>`;
+       ${disabled(actor.unlock>level || player.gold<actor.cost || owned>=2)}>Bauen · ${actor.cost} Gold</button></div>`;
   }).join('')}</div>`;
 }
 
@@ -74,10 +83,10 @@ function smith(player) {
     const rank=player.temper?.[index]??0;
     const cost=33+16*index+24*rank;
     return `<button class="ritual-chip ${rarityClass(index+1)}" data-temper="${index+1}" ${disabled(rank>=6 || player.gold<cost)}>
-       <strong>${name}</strong><small>+${rank*12}% · ${rank>=6?'Max':cost}</small></button>`;
+       <strong>${name}</strong><small>+${rank*12} % Schaden · ${rank>=6?'Maximum':`${cost} Gold`}</small></button>`;
   }).join('')}</div>
-  <div class="favor-row"><span>Glücksstufe ${player.favor}/5</span>
-     <button class="minibutton" data-order="fortune" ${disabled(player.favor>=5 || player.gold<65+player.favor*34)}>Chance verbessern · ${65+player.favor*34}</button></div>
+  <div class="favor-row"><span>Glück ${player.favor}/5</span>
+     <button class="minibutton" data-order="fortune" title="Höhere Chance auf seltene Einheiten" ${disabled(player.favor>=5 || player.gold<65+player.favor*34)}>Glück erhöhen · ${65+player.favor*34} Gold</button></div>
   ${rewards(player)}`;
 }
 
@@ -94,15 +103,28 @@ function detail(piece,game,actors) {
       ${troop?rarities[piece.tier]:actor.kind==='hero'?'Held':'Gebäude'} · Stufe ${piece.rank} · ${damage} Schaden
     </small></div></div>
     <div class="formation-actions">
-      ${actor.kind==='building'?'':'<button data-order="move" class="minibutton">Umstellen</button>'}
+      ${actor.kind==='building'?'':'<button data-order="move" class="minibutton">Verschieben</button>'}
       ${troop && piece.tier<5?`<button class="minibutton merge" data-order="merge" ${disabled(piece.stack!==3)}>Verschmelzen · ${piece.stack}/3</button>`:''}
       ${actor.kind==='hero'?`<button class="minibutton cast" data-order="cast" ${disabled(cooldown||game.phase!=='combat')}>${a(actor.role)}${cooldown?` · ${cooldown} s`:''}</button>`:''}
-      <button class="minibutton" data-order="upgrade" ${disabled(piece.rank>=4 || player.gold<price(piece.rank,piece.tier))}>${piece.rank>=4?'Max':`Ausbauen · ${price(piece.rank,piece.tier)}`}</button>
+      <button class="minibutton" data-order="upgrade" ${disabled(piece.rank>=4 || player.gold<price(piece.rank,piece.tier))}>${piece.rank>=4?'Höchste Stufe':`Aufwerten · ${price(piece.rank,piece.tier)} Gold`}</button>
       <button class="minibutton sell" data-order="sell">Verkaufen</button>
     </div></div>`;
 }
 
-export function circuitOrders({room,selected,pending,menuPane,actors,catalog,level,locked,muted}) {
+function updatePanel(panel, markup) {
+  if (dockSections.get(panel) === markup) return;
+  dockSections.set(panel, markup);
+  const scroll = panel.scrollTop;
+  const sideways = panel.querySelector('.reserve-list')?.scrollLeft;
+  panel.innerHTML = markup;
+  panel.scrollTop = scroll;
+  if (sideways) {
+    const reserve = panel.querySelector('.reserve-list');
+    if (reserve) reserve.scrollLeft = sideways;
+  }
+}
+
+export function updateCircuitOrders(orders, {room,selected,pending,menuPane,actors,catalog,level,locked,muted}) {
   const {game,viewer}=room;
   const player=game.players[viewer];
   const draw=drawPrice(game,player);
@@ -113,18 +135,41 @@ export function circuitOrders({room,selected,pending,menuPane,actors,catalog,lev
       : menuPane==='building' ? buildPanel(game,player,level,catalog,pending)
       : menuPane==='smith' ? smith(player)
       : reservePanel(player,pending,actors);
-  const panes=[['recruit','Reserve'],['oracle','Orakel'],['hero','Helden'],['building','Bauen'],['smith','Schmiede']];
-  return `<div class="battle-quick">
-    <button class="draw-button" data-order="recruit" ${disabled(locked || player.gold<draw || player.reserve.length>=6)}>
-      <span aria-hidden="true">✦</span><strong>Truppe ziehen</strong><span class="draw-cost">${draw} Gold</span></button>
-    <button class="draw-many" data-order="recruit-many" aria-label="Drei Truppen ziehen" ${disabled(locked || player.gold<draw || player.reserve.length>=6)}>×3</button>
-    ${game.phase==='prep'?`<button class="ready-quick" data-order="ready" ${disabled(locked || game.prepared[viewer])}>${game.prepared[viewer]?'Wartet':'Bereit'}</button>`:''}
+  if (!orders.querySelector('.battle-quick')) orders.innerHTML=`<div class="battle-quick">
+    <button class="draw-button" data-order="recruit">${icon('recruit')}<strong>Rekrutieren</strong>
+      <span class="draw-cost">${icon('gold')} <span></span></span></button>
+    <button class="draw-many" data-order="recruit-many" aria-label="Bis zu drei Einheiten rekrutieren">×3</button>
+    <button class="ready-quick" data-order="ready" hidden></button>
   </div>
-  <nav class="battle-tabs" aria-label="Schlachtbefehle">${panes.map(([id,label])=>`<button data-pane="${id}" aria-pressed="${menuPane===id}">${label}
-      ${id==='recruit' && player.reserve.length ? ` <b>${player.reserve.length}</b>`:''}</button>`).join('')}</nav>
-  <div class="battle-tray" tabindex="0" aria-label="Befehle auf der Schlachtbank">${section}</div>
-  ${pending?.type==='cast'?'<div class="target-actions"><button class="minibutton" data-order="cast-auto">Auf vordersten Gegner</button><button class="text-button" data-order="cancel">Abbrechen</button></div>':''}
-  ${pending && pending.type!=='cast'?'<button class="dismiss-target text-button" data-order="cancel">Auswahl abbrechen</button>':''}
-  <div class="battle-end"><button class="text-button" data-order="sound" aria-label="Spielton" aria-pressed="${!muted}">Ton ${muted?'aus':'an'}</button>
+  <nav class="battle-tabs" aria-label="Kampfmenü">${panes.map(([id,label,symbol])=>
+    `<button data-pane="${id}">${icon(symbol)}<span>${label}</span>${id==='recruit'?'<b hidden></b>':''}</button>`).join('')}</nav>
+  <div class="battle-tray" tabindex="0" aria-label="Ausgewählter Bereich"></div>
+  <div class="battle-target" hidden></div>
+  <div class="battle-end"><button class="text-button" data-order="sound" aria-label="Spielton"></button>
     <button class="text-button" data-order="forfeit">Aufgeben</button></div>`;
+  const unable=locked || player.gold<draw || player.reserve.length>=6;
+  const recruit=orders.querySelector('[data-order="recruit"]');
+  recruit.disabled=unable;
+  recruit.querySelector('.draw-cost span').textContent=draw;
+  recruit.setAttribute('aria-label',`Rekrutieren · ${draw} Gold`);
+  orders.querySelector('[data-order="recruit-many"]').disabled=unable;
+  const ready=orders.querySelector('[data-order="ready"]');
+  ready.hidden=game.phase!=='prep';
+  ready.disabled=locked || game.prepared[viewer];
+  ready.textContent=game.prepared[viewer]?'Wartet':'Bereit';
+  const pane=menuPane==='piece'?'recruit':menuPane;
+  for (const button of orders.querySelectorAll('[data-pane]')) button.setAttribute('aria-pressed',String(button.dataset.pane===pane));
+  const remaining=orders.querySelector('.battle-tabs b');
+  remaining.hidden=!player.reserve.length;
+  remaining.textContent=player.reserve.length;
+  const target=orders.querySelector('.battle-target');
+  target.hidden=!pending;
+  const targetMarkup=pending?.type==='cast'
+    ? '<button class="minibutton" data-order="cast-auto">Automatisch zielen</button><button class="text-button" data-order="cancel">Abbrechen</button>'
+    : '<button class="text-button" data-order="cancel">Auswahl abbrechen</button>';
+  updatePanel(target,targetMarkup);
+  updatePanel(orders.querySelector('.battle-tray'),section);
+  const sound=orders.querySelector('[data-order="sound"]');
+  sound.setAttribute('aria-pressed',String(!muted));
+  sound.textContent=`Ton ${muted?'aus':'an'}`;
 }

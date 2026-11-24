@@ -2,9 +2,9 @@ import '@fontsource-variable/cormorant-garamond';
 import '@fontsource-variable/dm-sans';
 import './style.css';
 import './circuit.css';
-import { $, esc, portrait, numeral, number, price, pieceLabel, groupNames, themeHeroes, colorThemes, actorCard, historyRow, signCard, spoilsText } from './presentation.js';
+import { $, esc, portrait, numeral, number, price, pieceLabel, groupNames, themeHeroes, colorThemes, actorCard, historyRow, signCard, spoilsText, rarities } from './presentation.js';
 import { battleSound, isMuted, score, toggleSound } from './audio.js';
-import { circuitOrders, drawPrice, isCircuit, ownerOf, pressureLimit, rarities } from './circuit-ui.js';
+import { updateCircuitOrders, drawPrice, isCircuit, ownerOf, pressureLimit } from './circuit-ui.js';
 import { bindScreen, enterFullscreen, handheld, leaveFullscreen } from './screen.js';
 import { difficultyProgress, materials } from '../shared/progression.js';
 
@@ -30,6 +30,8 @@ let pending = null;
 let arena = null;
 let arenaInit = null;
 let renderedGame = null;
+let renderedMove = null;
+let movePreview = null;
 let loadedBoard = '';
 let socket = null;
 let polling = null;
@@ -47,9 +49,10 @@ let legendSignature = '';
 let lastPhase = '';
 let drawNoticeTimer;
 let waveRewardTimer;
-let dragStart;
-let blockClickUntil=0;
+let dragStart = null;
+let suppressedClick=null;
 let slowSamples=0;
+let severeSamples=0;
 let fastSamples=0;
 const grid = [];
 
@@ -135,7 +138,7 @@ function paintPreparation() {
     document.querySelector('.hero').dataset.theme = theme;
   }
   $('hero-description').textContent = theme === 'aegean'
-    ? 'Zieh Truppen, setze sie auf dein Brett und entwickle Dreierstapel zu stärkeren Seltenheiten. Spiel allein oder im Zweier-Koop.'
+    ? 'Rekrutiere Einheiten, stelle Trupps zusammen und verteidige den Rundkurs. Spiele allein oder zu zweit.'
     : chosen.caption;
   for (const modeButton of document.querySelectorAll('[data-mode]')) {
     modeButton.setAttribute('aria-pressed', String(modeButton.dataset.mode === mode));
@@ -157,7 +160,7 @@ function paintPreparation() {
   paintDifficulties();
   $('friend-row').hidden = mode !== 'duo';
   if (document.activeElement !== $('friend')) $('friend').value = friendDraft;
-  $('create-match').textContent = mode === 'duo' ? 'Koop-Raum öffnen ›' : 'Solo-Partie öffnen ›';
+  $('create-match').textContent = mode === 'duo' ? 'Koop-Partie erstellen ›' : 'Solo-Partie erstellen ›';
 }
 
 function paintDifficulties(preview = difficulty) {
@@ -175,14 +178,14 @@ function paintDifficulties(preview = difficulty) {
   const { unlocked, prior, wins, ranks } = difficultyProgress(stage, catalog.difficulties, user);
   $('difficulty-detail').textContent = unlocked
     ? `${stage.detail}${stage.rank ? ' Zusätzliche Beute in Meilensteinwellen.' : ''}`
-    : `Feldzug auf ${prior.name} · ${Math.min(wins, stage.clears)}/${stage.clears} Siege. Meisterschaft · ${Math.min(ranks, stage.mastery)}/${stage.mastery} Ränge.`;
+    : `${Math.min(wins, stage.clears)}/${stage.clears} Feldzugssiege auf ${prior.name} · ${Math.min(ranks, stage.mastery)}/${stage.mastery} Meisterschaftsstufen`;
 }
 
 function paintCollection() {
   const level = user?.level ?? 1;
   $('collection-level').textContent = user
     ? `Profilstufe ${level} · ${number(user.xp)} EP`
-    : 'Spiele Partien, um neue Figuren freizuschalten.';
+    : 'Spiele Partien, um Einheiten, Gebäude und Helden freizuschalten.';
   const balances = $('material-balances');
   balances.hidden = !user;
   if (user) balances.innerHTML = Object.entries(materials).map(([key, label]) =>
@@ -222,7 +225,7 @@ async function recentRooms() {
     $('recent-block').hidden = !result.rooms.length;
     $('recent').innerHTML = result.rooms.map(item => `<button data-resume="${item.id}" class="resume">
       <span><strong>${esc(themes.get(item.theme)?.map)}</strong><small>${item.mode === 'duo' ? 'Koop' : 'Solo'} · ${esc(difficulties.get(item.difficulty)?.name)} · ${esc(challenges.get(item.challenge)?.name)}</small></span>
-      <span>${item.phase === 'lobby' ? 'Lobby' : item.phase === 'won' ? 'Sieg' : item.phase === 'lost' ? 'Abgeschlossen' : `Welle ${item.wave}`} ›</span></button>`).join('');
+      <span>${item.phase === 'lobby' ? 'Lobby' : item.phase === 'won' ? 'Sieg' : item.phase === 'lost' ? 'Niederlage' : `Welle ${item.wave}`} ›</span></button>`).join('');
   } catch (error) { if (error.status !== 401) toast(error.message, true); }
 }
 
@@ -244,9 +247,9 @@ function showInvite() {
   if (!invitation || $('account-dialog').open) return;
   $('invite-description').textContent = user
     ? `Du trittst mit dem Konto @${user.handle} bei.`
-    : 'Melde dich mit dem eingeladenen Konto an, um dem Spielraum beizutreten.';
+    : 'Melde dich mit dem eingeladenen Konto an.';
   $('invite-error').textContent = '';
-  $('accept-invite').textContent = user ? 'Einladung annehmen' : 'Zum Login';
+  $('accept-invite').textContent = user ? 'Einladung annehmen' : 'Anmelden';
   if (!$('invite-dialog').open) $('invite-dialog').showModal();
 }
 
@@ -270,7 +273,7 @@ function stopNetwork() {
 function connectRoom(id) {
   stopNetwork();
   failures = 0;
-  connection('Verbindet', 'pending');
+  connection('Verbindet …', 'pending');
   function start() {
     if (room?.id !== id) return;
     const endpoint = new URL('/api/live', location.href);
@@ -293,11 +296,11 @@ function connectRoom(id) {
     opened.onclose = () => {
       if (socket !== opened || room?.id !== id) return;
       socket = null;
-      connection('Verbindung wird erneuert', 'pending');
+      connection('Verbindet erneut …', 'pending');
       async function fallback() {
         if (talking || room?.id !== id) return;
         talking = true;
-        try { receive(await request('board', undefined, {id})); connection('Synchronisiert', 'live'); }
+        try { receive(await request('board', undefined, {id})); connection('Verbunden', 'live'); }
         catch (error) { if (error.status === 401 || error.status === 403) stopNetwork(); }
         finally { talking = false; }
       }
@@ -306,7 +309,7 @@ function connectRoom(id) {
       restore = setTimeout(start, Math.min(14_000, 1400 * 2 ** failures++));
     };
     opened.onerror = () => {
-      if (socket === opened) connection('Verbindung wird erneuert', 'pending');
+      if (socket === opened) connection('Verbindet erneut …', 'pending');
     };
   }
   start();
@@ -335,10 +338,21 @@ async function startArena() {
 
 function supplyArena() {
   if (!arena || !room) return;
-  if (renderedGame !== room.game) {
+  if (renderedGame !== room.game || renderedMove !== movePreview) {
+    let game = room.game;
+    const preview = movePreview;
+    if (preview?.room === room.id && game.pieces.some(piece => piece.id === preview.id && piece.slot === preview.from)
+      && game.pieces.find(piece => piece.slot === preview.to)?.id === preview.other) {
+      game = { ...game, pieces: game.pieces.map(piece => {
+        if (piece.id === preview.id) return { ...piece, slot: preview.to };
+        if (piece.id === preview.other) return { ...piece, slot: preview.from };
+        return piece;
+      }) };
+    }
     arena.set_viewer(room.viewer);
-    arena.set_room_state(room.id, JSON.stringify(room.game));
+    arena.set_room_state(room.id, JSON.stringify(game));
     renderedGame = room.game;
+    renderedMove = movePreview;
   }
   const piece = room.game.pieces.find(item => item.id === selected);
   const definition = piece && actors.get(piece.actor);
@@ -347,6 +361,8 @@ function supplyArena() {
 
 function openMatch(packet) {
   stopNetwork();
+  clearDrag();
+  movePreview = null;
   room = null;
   selected = null;
   pending = null;
@@ -366,6 +382,7 @@ function openMatch(packet) {
   }
   delete $('stage').dataset.resolution;
   slowSamples=0;
+  severeSamples=0;
   fastSamples=0;
   $('hub').hidden = true;
   $('match').hidden = false;
@@ -381,6 +398,9 @@ function openMatch(packet) {
 
 function leaveView() {
   stopNetwork();
+  clearDrag();
+  movePreview = null;
+  arena?.close_board();
   room = null;
   renderedGame = null;
   score('');
@@ -407,6 +427,7 @@ function receive(packet, force = false) {
   }
   if (lastPhase !== game.phase && ['won','lost'].includes(game.phase)) {
     pending = null;
+    clearDrag();
     void refreshAccount();
     score('');
   }
@@ -416,9 +437,9 @@ function receive(packet, force = false) {
     if (recentEvents.has(event.id) || event.tick + 24 < game.tick) continue;
     recentEvents.add(event.id);
     if (!force) battleSound(event);
-    if (event.kind==='oracle_miss') sceneNotice('Das Orakel hat diesmal keine Truppe gerufen.',1700);
-    if (event.kind === 'boss_windup') sceneNotice('Schockwelle angekündigt. Bewegliche Truppen können ausweichen.', 1900);
-    if (event.kind === 'boss') sceneNotice(`${enemies.get(event.actor)?.name ?? 'Boss'} rückt an`, 2800);
+    if (event.kind==='oracle_miss') sceneNotice('Das Orakel hat keine Einheit beschworen.',1700);
+    if (event.kind === 'boss_windup') sceneNotice('Schockwelle im markierten Bereich. Verschiebe deinen Trupp.', 1900);
+    if (event.kind === 'boss') sceneNotice(`${enemies.get(event.actor)?.name ?? 'Boss'} nähert sich`, 2800);
   }
   if (recentEvents.size > 3000) recentEvents = new Set(game.events.map(event => event.id));
   supplyArena();
@@ -442,8 +463,8 @@ function stageCaption() {
   }
   const recruit = pending.type==='deploy' && room?.game.players[room.viewer].reserve?.find(r=>r.id===pending.id);
   const hint = recruit ? `${actors.get(recruit.actor).name} · Feld wählen`
-    : pending.type === 'move' ? 'Zielplatz für die Truppe wählen'
-    : pending.type === 'cast' ? 'Zielfeld wählen oder Fähigkeit auf den vordersten Gegner wirken'
+    : pending.type === 'move' ? 'Tippe auf ein Zielfeld'
+    : pending.type === 'cast' ? 'Wähle ein Zielfeld oder lass den Helden automatisch zielen.'
     : `${actors.get(pending.actor)?.name} · freien Bauplatz wählen`;
   $('scene-note').dataset.selection = 'true';
   sceneNotice(hint);
@@ -501,6 +522,7 @@ function paintMatch() {
   $('kills').textContent = `${game.kills} besiegt`;
   $('stage').style.setProperty('--theme-accent', colorThemes[game.theme]);
   $('stage').dataset.theme=game.theme;
+  $('match').dataset.theme=game.theme;
   const membership=JSON.stringify([host.name,guest?.name,viewer]);
   if (legendSignature!==membership) {
     legendSignature=membership;
@@ -528,6 +550,7 @@ function paintSlots() {
   if (revision===slotSignature) return;
   slotSignature=revision;
   const bySlot=new Map(game.pieces.map(piece=>[piece.slot,piece]));
+  const movingPiece=pending?.type==='move' ? game.pieces.find(piece=>piece.id===pending.id) : null;
   const count=circuit?32:24;
   for (const [index, button] of grid.entries()) {
     if(index>=count){button.hidden=true; continue;}
@@ -535,12 +558,14 @@ function paintSlots() {
     const own=!room.guest || ownerOf(game,index)===room.viewer;
     const active=piece?.id===selected;
     const building=piece && actors.get(piece.actor)?.kind==='building';
-    const validDeploy=reserve && (!piece || (piece.actor===reserve.actor && piece.tier===reserve.tier && piece.stack<3));
-    const moving=pending?.type==='move' && (!piece || (piece.owner===room.viewer && !building));
+    const validDeploy=reserve && (!piece || (piece.owner===room.viewer && matchesTroop(reserve,piece) && piece.stack<3));
+    const moving=movingPiece && canMoveTo(movingPiece,index,piece);
     const target=!inactive && (pending?.type==='cast' || (own && (validDeploy || (pending?.type==='place'&&!piece) || moving)));
     button.classList.toggle('marked',active);
     button.classList.toggle('own',own);
     button.classList.toggle('filled',Boolean(piece));
+    button.classList.toggle('movable',Boolean(piece && own && !building && circuit));
+    button.classList.toggle('merge-ready',Boolean(circuit && piece?.stack===3 && piece.tier<5));
     button.classList.toggle('target',Boolean(target));
     button.classList.toggle('locked-tile',Boolean(reserve && !validDeploy));
     button.disabled=inactive || (!own && pending?.type!=='cast') || Boolean(reserve && !validDeploy)
@@ -548,8 +573,8 @@ function paintSlots() {
       || (circuit && pending?.type==='move' && !moving);
     button.tabIndex=button.disabled?-1:0;
     button.setAttribute('aria-label',piece
-      ? `${pieceLabel(actors.get(piece.actor),piece)}${circuit && piece.stack>1?`, ${piece.stack} Kämpfer`:''}`
-      : `Bauplatz ${index+1}`);
+      ? pieceLabel(actors.get(piece.actor),piece,circuit)
+      : `Freies Feld ${index+1}`);
     button.setAttribute('aria-pressed',String(active));
     const pips=piece ? circuit && piece.stack>1 ? `×${piece.stack}` : piece.tier>1 ? numeral(piece.tier) : '' : '';
     if (button.dataset.pips!==pips || button.dataset.circuit!==String(circuit)) {
@@ -573,8 +598,8 @@ function piecePanel(piece, game) {
     <p class="piece-note">${esc(actor.note)}</p>
     <p class="piece-numbers">${Math.round(actor.damage * [1,2.65,6.95][piece.tier-1] * (1+0.42*(piece.rank-1)) * (1+0.07*mastery))} Grundschaden · ${(actor.range+0.23*(piece.rank-1)+0.45*(piece.tier-1)).toFixed(1).replace('.',',')} Reichweite${mastery ? ` · Meisterschaft ${mastery}` : ''}</p>
     <div class="piece-actions">
-      ${actor.kind === 'building' ? '' : '<button class="minibutton" data-order="move">Umstellen</button>'}
-      <button class="minibutton" data-order="upgrade" ${piece.rank >= 4 || gold < price(piece.rank,piece.tier) ? 'disabled' : ''}>${piece.rank >= 4 ? 'Voll ausgebaut' : `Ausbauen · ${price(piece.rank,piece.tier)}`}</button>
+      ${actor.kind === 'building' ? '' : '<button class="minibutton" data-order="move">Verschieben</button>'}
+      <button class="minibutton" data-order="upgrade" ${piece.rank >= 4 || gold < price(piece.rank,piece.tier) ? 'disabled' : ''}>${piece.rank >= 4 ? 'Höchste Stufe' : `Aufwerten · ${price(piece.rank,piece.tier)} Gold`}</button>
       ${actor.kind === 'troop' && piece.tier < 3 ? `<button class="minibutton merge" data-order="merge" ${matches < 3 ? 'disabled' : ''}>Verschmelzen · ${Math.min(matches,3)}/3</button>` : ''}
       ${actor.kind === 'hero' ? `<button class="minibutton cast" data-order="cast" ${cooldown || game.phase !== 'combat' ? 'disabled' : ''}>${esc(actor.role)}${cooldown ? ` · ${cooldown} s` : ''}</button>` : ''}
       <button class="minibutton sell" data-order="sell">Verkaufen</button>
@@ -599,7 +624,7 @@ function rosterPanel(game) {
     return `<button class="roster-card ${marked ? 'active' : ''}" data-place="${actor.id}" title="${esc(actor.note)}" ${off ? 'disabled' : ''}
       aria-pressed="${marked}"><span class="roster-image">${portrait(actor.id)}</span>
       <span class="roster-copy"><strong>${esc(actor.name)}</strong><small>${esc(actor.role)}</small></span>
-      <span class="roster-cost">${lock ? `Lv. ${actor.unlock}` : actor.cost}</span></button>`;
+      <span class="roster-cost">${lock ? `Stufe ${actor.unlock}` : `${actor.cost} Gold`}</span></button>`;
   }).join('')}</div>`;
 }
 
@@ -619,52 +644,47 @@ function paintOrders() {
   orderSignature=signature;
   const orders=$('orders');
   const focused=orders.contains(document.activeElement)?document.activeElement.dataset:null;
-  const oldTray=orders.querySelector('.battle-tray');
-  const scroll=oldTray?.scrollTop??0;
-  const scrolling=oldTray?.scrollLeft??0;
   orders.classList.toggle('circuit-orders',circuit);
   orders.classList.toggle('live-deck',circuit && !['lobby','won','lost'].includes(game.phase));
   if (game.phase === 'lobby') {
     const sign = catalog.fieldSigns.find(sign => sign.id === player.field_sign?.id);
-    orders.innerHTML = `<div class="orders-heading"><p class="kicker">${guest ? 'Koop-Raum' : 'Solo-Partie'}</p><h2>Aufstellung</h2></div>
+    orders.innerHTML = `<div class="orders-heading"><h2>${guest ? 'Koop-Lobby' : 'Solo-Partie'}</h2></div>
       <div class="lobby-members"><div><i></i><span>${esc(host.name)}</span><small>Gastgeber</small></div>
       ${guest ? `<div><i></i><span>${esc(guest.name)}</span><small>${joined ? 'Bereit' : 'Eingeladen'}</small></div>` : ''}</div>
       ${guest && viewer === 0 && !joined ? `<p class="hint">Teile den Link mit @${esc(guest.handle)}. Nur dieses Konto kann beitreten.</p>
-        ${room.invite ? `<div class="invite-copy"><input id="room-invite" aria-label="Kontogebundener Einladungslink" value="${esc(inviteUrl(room.invite))}" readonly>
+        ${room.invite ? `<div class="invite-copy"><input id="room-invite" aria-label="Einladungslink" value="${esc(inviteUrl(room.invite))}" readonly>
           <button class="minibutton" data-order="copy">Kopieren</button></div>` :
-        '<button class="minibutton" data-order="renew">Neuen Einladungslink erzeugen</button>'}` : ''}
+        '<button class="minibutton" data-order="renew">Neuen Einladungslink erstellen</button>'}` : ''}
       ${viewer === 0 ? `<button class="primary" data-order="start" ${!joined || locked || !boardReady ? 'disabled' : ''}>Partie starten ▸</button>` :
         '<p class="hint">Der Gastgeber startet eure Partie.</p>'}
-      ${sign ? `<p class="hint guide-note">${esc(sign.name)} · Rang ${player.field_sign.rank}</p>` : ''}
-      <p class="hint guide-note">${circuit ? 'Zieh Truppen, wähle ihr Feld und verschmelze Dreierstapel. Gegner kreisen weiter, während neue Wellen beginnen.' :
-        `Ziehen kostet ${drawCost} Gold. Auf dem Feld kannst du drei gleiche Truppen verschmelzen.`}</p>`;
+      ${sign ? `<p class="hint guide-note">${esc(sign.name)} · Stufe ${player.field_sign.rank}</p>` : ''}
+      <p class="hint guide-note">${circuit ? 'Wähle für eine neue Einheitenart das erste Feld. Weitere Exemplare bilden automatisch einen Trupp aus bis zu drei Einheiten.' :
+        `Rekrutiere für ${drawCost} Gold. Drei gleiche Einheiten kannst du verschmelzen.`}</p>`;
   } else if (['won','lost'].includes(game.phase)) {
     orders.innerHTML = `<div class="orders-heading"><p class="kicker">Schlachtbericht</p><h2>${game.phase === 'won' ? 'Die Bastion hält' : 'Die Bastion ist gefallen'}</h2></div>
-      <dl class="end-stats"><div><dt>Wellen</dt><dd>${game.wave} / ${game.wave_limit}</dd></div><div><dt>Besiegte Gegner</dt><dd>${game.kills}</dd></div>
-      <div><dt>Verschmolzen</dt><dd>${player.merges}</dd></div><div><dt>Fähigkeiten</dt><dd>${player.casts}</dd></div>
+      <dl class="end-stats"><div><dt>Erreichte Wellen</dt><dd>${game.wave} / ${game.wave_limit}</dd></div><div><dt>Besiegte Gegner</dt><dd>${game.kills}</dd></div>
+      <div><dt>Verschmelzungen</dt><dd>${player.merges}</dd></div><div><dt>Eingesetzte Fähigkeiten</dt><dd>${player.casts}</dd></div>
       ${loot ? `<div><dt>Wellenbeute</dt><dd>${loot}</dd></div>` : ''}
-      ${result ? `<div><dt>Erfahrung für Welle ${result.wave}</dt><dd>+${result.xp} EP ${result.seals ? `· +${result.seals} Siegel` : ''}</dd></div>` : ''}</dl>
+      ${result ? `<div><dt>Belohnung für Welle ${result.wave}</dt><dd>+${result.xp} EP ${result.seals ? `· +${result.seals} Siegel` : ''}</dd></div>` : ''}</dl>
       <button class="primary" data-order="home">Zur Bastion ›</button><button class="quiet" data-order="history">Chronik öffnen</button>`;
   } else if(circuit) {
-    orders.innerHTML=circuitOrders({room,selected,pending,menuPane,actors,catalog,
+    updateCircuitOrders(orders,{room,selected,pending,menuPane,actors,catalog,
       level:Math.max(player.level,themes.get(game.theme).unlock),locked,muted:isMuted()});
-    const tray=orders.querySelector('.battle-tray');
-    if(tray){tray.scrollTop=scroll;tray.scrollLeft=scrolling;}
   } else {
     const piece = game.pieces.find(item => item.id === selected);
     orders.innerHTML = `<div class="orders-heading"><p class="kicker">Deine Verteidigung</p><h2>Befehle</h2></div>
       <button class="primary recruit" data-order="recruit" ${player.gold < drawCost || locked ? 'disabled' : ''}>
-        <span aria-hidden="true">✦</span> Truppe ziehen <small>${drawCost} Gold</small></button>
+        <span aria-hidden="true">✦</span> Rekrutieren <small>${drawCost} Gold</small></button>
       ${pending ? '<div class="pending-controls"><button class="quiet" data-order="cancel">Auswahl abbrechen</button>'
-        + (pending.type === 'cast' ? '<button class="minibutton" data-order="cast-auto">Auto-Ziel</button>' : '') + '</div>' : ''}
+        + (pending.type === 'cast' ? '<button class="minibutton" data-order="cast-auto">Automatisch zielen</button>' : '') + '</div>' : ''}
       ${piece ? piecePanel(piece,game) : game.wave === 0
-        ? `<p class="hint order-hint">${game.challenge==='levy' ? 'Ziehe mehrere Truppen. Verschmelze drei gleiche für einen stärkeren Rang.'
-          : 'Decke einen Weg mit einem Gebäude ab oder ziehe die ersten Truppen.'} Starte dann die erste Welle.</p>`
-        : '<p class="hint order-hint">Wähle ein Feld, um seine Truppe auszubauen, zu verschmelzen oder umzustellen.</p>'}
+        ? `<p class="hint order-hint">${game.challenge==='levy' ? 'Rekrutiere Einheiten. Verschmelze drei gleiche für einen höheren Rang.'
+          : 'Sichere den Weg mit Gebäuden und Einheiten.'} Starte dann die erste Welle.</p>`
+        : '<p class="hint order-hint">Tippe auf ein Feld, um den Trupp auszuwählen.</p>'}
       ${rosterPanel(game)}
       <div class="orders-footer">
         ${game.phase === 'prep' ? `<button class="secondary" data-order="ready" ${game.prepared[viewer] || locked ? 'disabled' : ''}>
-          ${game.prepared[viewer] ? 'Wartet auf Mitspieler' : 'Bereit für die Welle'}</button>` : ''}
+          ${game.prepared[viewer] ? 'Warten auf Mitspieler' : 'Bereit für die Welle'}</button>` : ''}
         <button class="quiet surrender" data-order="forfeit">Partie aufgeben</button></div>`;
   }
   if (focused) {
@@ -673,17 +693,21 @@ function paintOrders() {
   }
 }
 
+function revealRecruit(unit, detail) {
+  const definition=actors.get(unit.actor);
+  const label=$('draw-reveal');
+  label.className=`draw-reveal rarity-${unit.tier}`;
+  label.innerHTML=`${portrait(definition.id)}<span><strong>${esc(definition.name)}</strong><small>${rarities[unit.tier]} · ${detail}</small></span>`;
+  label.hidden=false;
+  clearTimeout(drawNoticeTimer);
+  drawNoticeTimer=setTimeout(()=>{label.hidden=true;},1600);
+}
+
 function chooseReserve(recruit) {
-  const definition=actors.get(recruit.actor);
   selected=null;
   pending={type:'deploy',id:recruit.id};
   menuPane='recruit';
-  const label=$('draw-reveal');
-  label.className=`draw-reveal rarity-${recruit.tier}`;
-  label.innerHTML=`<strong>${esc(definition.name)}</strong><small>${rarities[recruit.tier]}</small>`;
-  label.hidden=false;
-  clearTimeout(drawNoticeTimer);
-  drawNoticeTimer=setTimeout(()=>{label.hidden=true;},1350);
+  revealRecruit(recruit,'Feld wählen');
 }
 
 async function command(order, hint) {
@@ -693,12 +717,23 @@ async function command(order, hint) {
   try {
     const id=room.id;
     const before=new Set(room.game.players[room.viewer].reserve?.map(r=>r.id)??[]);
+    const firstNewId=room.game.next_id;
     const result=await request('action',{id,nonce:crypto.randomUUID(),command:order});
     if(room?.id!==id)return false;
     receive(result);
     if(isCircuit(result.game) && ['recruit','recruit_many','oracle'].includes(order.type)) {
       const recruit=result.game.players[result.viewer].reserve.find(r=>!before.has(r.id));
       if(recruit)chooseReserve(recruit);
+      else if (!pending) {
+        const added=result.game.events.findLast(event=>event.id>=firstNewId && ['draw','stack'].includes(event.kind)
+          && result.game.pieces.some(piece=>piece.id===event.source && piece.owner===result.viewer));
+        const piece=result.game.pieces.find(piece=>piece.id===added?.source);
+        if(piece) {
+          selected=piece.id;
+          menuPane='piece';
+          revealRecruit(piece,added.kind==='stack'?`${piece.stack}/3 im Trupp`:'Neues Feld');
+        }
+      }
     }
     if(typeof hint==='function')hint(result);
     paintMatch();
@@ -712,6 +747,10 @@ async function tapSlot(slot) {
   if(!room||locked||['lobby','won','lost'].includes(room.game.phase))return;
   if(pending){
     const action={...pending,slot};
+    if(action.type==='move' && isCircuit(room.game)) {
+      await movePiece(action.id,slot);
+      return;
+    }
     await command(action,result=>{
       pending=null;
       const piece=result.game.pieces.find(item=>item.slot===slot&&item.owner===result.viewer);
@@ -735,37 +774,118 @@ async function tapSlot(slot) {
   supplyArena();
 }
 
+function matchesTroop(a,b) {
+  return a.actor===b.actor && a.tier===b.tier && actors.get(a.actor)?.kind==='troop';
+}
+
+function canMoveTo(piece,slot,destination) {
+  if(!piece || actors.get(piece.actor)?.kind==='building' || slot===piece.slot) return false;
+  if(room.guest && ownerOf(room.game,slot)!==room.viewer) return false;
+  return !destination || (destination.owner===room.viewer && actors.get(destination.actor)?.kind!=='building'
+    && (!matchesTroop(piece,destination) || destination.stack<3));
+}
+
+async function movePiece(id,slot) {
+  if(!room || locked) return;
+  const piece=room.game.pieces.find(item=>item.owner===room.viewer && item.id===id);
+  const destination=room.game.pieces.find(item=>item.slot===slot);
+  if(!canMoveTo(piece,slot,destination)) return;
+  if (!destination || !matchesTroop(piece,destination)) {
+    movePreview={room:room.id,id,from:piece.slot,to:slot,other:destination?.id};
+    supplyArena();
+  }
+  try {
+    await command({type:'move',id,slot},result=>{
+      pending=null;
+      selected=result.game.pieces.find(item=>item.slot===slot && item.owner===result.viewer)?.id??null;
+      menuPane=selected?'piece':'recruit';
+    });
+  } finally {
+    movePreview=null;
+    supplyArena();
+  }
+}
+
+function dragTarget(drag,event) {
+  let closest=null;
+  let distance=1.5;
+  for(const tile of drag.tiles) {
+    const delta=Math.hypot((event.clientX-tile.x)/tile.halfWidth,(event.clientY-tile.y)/tile.halfHeight);
+    if(delta<distance){distance=delta;closest=tile.index;}
+  }
+  return drag.valid.has(closest)?closest:null;
+}
+
+function paintDrag(event) {
+  const drag=dragStart;
+  if(!drag || drag.pointer!==event.pointerId) return;
+  if(!drag.tiles) {
+    if(Math.hypot(event.clientX-drag.x,event.clientY-drag.y)<(event.pointerType==='touch'?10:6)) return;
+    const board=$('stage').getBoundingClientRect();
+    drag.board=board;
+    drag.tiles=grid.flatMap((button,index)=>{
+      if(button.hidden)return [];
+      const rect=button.getBoundingClientRect();
+      return [{index,x:rect.x+rect.width/2,y:rect.y+rect.height/2,halfWidth:rect.width*.62,halfHeight:rect.height*.62}];
+    });
+    const occupied=new Map(room.game.pieces.map(item=>[item.slot,item]));
+    const piece=occupied.get(drag.slot);
+    if(piece?.id!==drag.id){clearDrag();return;}
+    drag.valid=new Set(drag.tiles.filter(tile=>canMoveTo(piece,tile.index,occupied.get(tile.index))).map(tile=>tile.index));
+    const guide=$('drag-figure');
+    guide.className=`drag-figure rarity-${piece.tier}`;
+    guide.innerHTML=`${portrait(piece.actor)}<b>${piece.stack}</b>`;
+    guide.hidden=false;
+    grid[drag.slot].classList.add('drag-origin');
+    for(const i of drag.valid)grid[i].classList.add('drag-target');
+  }
+  const aim=dragTarget(drag,event);
+  if(drag.target!==aim) {
+    grid[drag.target]?.classList.remove('drag-aim');
+    grid[aim]?.classList.add('drag-aim');
+    drag.target=aim;
+  }
+  $('drag-figure').style.transform=`translate(${event.clientX-drag.board.left}px,${event.clientY-drag.board.top}px)`;
+}
+
+function clearDrag() {
+  if(!dragStart)return;
+  grid[dragStart.slot]?.classList.remove('drag-origin');
+  for(const i of dragStart.valid??[])grid[i].classList.remove('drag-target','drag-aim');
+  $('drag-figure').hidden=true;
+  dragStart=null;
+}
+
 for (let i=0;i<32;i++) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'build-slot';
   button.hidden = true;
   button.dataset.slot = String(i);
-  button.addEventListener('click', () => {
-    if(performance.now()>=blockClickUntil)void tapSlot(i);
+  button.addEventListener('click', event => {
+    if (event.detail && suppressedClick?.slot === i && performance.now() < suppressedClick.until) return;
+    void tapSlot(i);
   });
   button.addEventListener('pointerdown',event=>{
-    if(!isCircuit(room?.game)||pending||locked)return;
+    if(!isCircuit(room?.game)||pending||locked||!event.isPrimary||event.button!==0)return;
     const piece=room.game.pieces.find(item=>item.slot===i&&item.owner===room.viewer);
     if(piece&&actors.get(piece.actor)?.kind!=='building'){
       dragStart={id:piece.id,x:event.clientX,y:event.clientY,slot:i,pointer:event.pointerId};
       button.setPointerCapture(event.pointerId);
     }
   });
+  button.addEventListener('pointermove',paintDrag);
   button.addEventListener('pointerup',event=>{
     if(!dragStart||dragStart.pointer!==event.pointerId)return;
-    const drag=dragStart; dragStart=null;
-    if(Math.hypot(event.clientX-drag.x,event.clientY-drag.y)<14)return;
-    const target=document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-slot]');
-    const slot=Number(target?.dataset.slot);
-    if(!target||target.disabled||slot===drag.slot||!Number.isInteger(slot))return;
-    blockClickUntil=performance.now()+280;
-    void command({type:'move',id:drag.id,slot},result=>{
-      selected=result.game.pieces.find(p=>p.slot===slot&&p.owner===room.viewer)?.id??null;
-      menuPane=selected?'piece':'recruit';
-    });
+    const drag=dragStart;
+    const slot=drag.tiles?dragTarget(drag,event):null;
+    clearDrag();
+    if(!drag.tiles)return;
+    suppressedClick={slot:i,until:performance.now()+240};
+    if(slot!==null)void movePiece(drag.id,slot);
   });
-  button.addEventListener('pointercancel',()=>{dragStart=null;});
+  button.addEventListener('pointercancel',clearDrag);
+  button.addEventListener('lostpointercapture',clearDrag);
   $('slot-overlay').append(button);
   grid.push(button);
 }
@@ -790,10 +910,19 @@ window.addEventListener('pantheon-frame-rate',event=>{
   stage.dataset.renderFps=event.detail;
   if(!isCircuit(room?.game)||!handheld()||!stage.dataset.rendered||document.hidden)return;
   const fps=Number(event.detail);
-  slowSamples=fps<16 ? slowSamples+1 : 0;
-  fastSamples=fps>53 ? fastSamples+1 : 0;
-  if(slowSamples>=3) stage.dataset.resolution='performance';
-  else if(fastSamples>=5 && !stage.dataset.resolution && devicePixelRatio>1.25) stage.dataset.resolution='sharp';
+  const resolution=stage.dataset.resolution;
+  slowSamples=fps<(resolution==='sharp'?42:26) ? slowSamples+1 : 0;
+  severeSamples=fps<15 ? severeSamples+1 : 0;
+  fastSamples=fps>=54 ? fastSamples+1 : 0;
+  if(severeSamples>=2) stage.dataset.resolution='economy';
+  else if(slowSamples>=2 && resolution==='sharp') delete stage.dataset.resolution;
+  else if(slowSamples>=3 && !resolution) stage.dataset.resolution='performance';
+  else if(fastSamples>=8) {
+    if(resolution==='economy') stage.dataset.resolution='performance';
+    else if(resolution==='performance') delete stage.dataset.resolution;
+    else if(!resolution && devicePixelRatio>1.25) stage.dataset.resolution='sharp';
+    fastSamples=0;
+  }
 });
 function boardAsset(game) {
   return isCircuit(game) ? game.theme : 'gate';
@@ -864,8 +993,8 @@ $('orders').addEventListener('click', async event => {
     pending = null;
     if (choice?.type === 'cast') await command({...choice, slot:null});
   } else if (kind === 'forfeit') {
-    $('leave-note').textContent = room.guest ? 'Die gemeinsame Partie endet für euch beide. Der erreichte Wellenstand fließt in eure Chronik ein.'
-      : 'Der aktuelle Wellenstand fließt in die Chronik ein.';
+    $('leave-note').textContent = room.guest ? 'Die Partie endet für euch beide. Ihr erhaltet EP für die erreichte Welle.'
+      : 'Du erhältst EP für die erreichte Welle.';
     $('leave-dialog').showModal();
   } else if (kind === 'merge') {
     const before = room.game.pieces.find(p => p.id === selected);
@@ -917,7 +1046,7 @@ document.addEventListener('click', async event => {
   }
   if (target.theme) {
     if (button.getAttribute('aria-disabled') === 'true') {
-      toast(`Dieser Schauplatz öffnet sich auf Profilstufe ${themes.get(target.theme).unlock}.`);
+      toast(`Diesen Schauplatz schaltest du ab Profilstufe ${themes.get(target.theme).unlock} frei.`);
     } else { theme = target.theme; paintPreparation(); }
   }
   if (target.faction) { factionFilter = target.faction; paintCollection(); }

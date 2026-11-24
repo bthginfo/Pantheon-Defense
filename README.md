@@ -8,18 +8,20 @@ Rom und Japan bringen 36 Truppen, 24 Helden und neun Gebäude aufs Brett.
 ## Spielen
 
 1. Erstelle ein Konto mit einem eindeutigen Rufnamen. Wähle Karte, Schwierigkeit
-   und Herausforderung. Bei **Zu zweit** gibst du den Rufnamen des registrierten
+   und Spielvariante. Bei **Zu zweit** gibst du den Rufnamen des registrierten
    Mitspielers ein. Kopiere den Einladungslink im Spielraum und teile ihn mit
    der eingeladenen Person.
-2. Der Gastgeber startet. **Truppe ziehen** legt einen Rekruten in die Reserve.
-   Wähle selbst eines der markierten Felder. Auf einem Feld kannst du bis zu
-   drei Exemplare derselben Truppe und Seltenheit sammeln.
-3. Tippe einen Dreierstapel an und wähle **Verschmelzen**, um auf demselben Feld
-   eine Truppe der nächsten Seltenheit zu bekommen. Die Stufen sind Common,
+2. Der Gastgeber startet. Mit **Rekrutieren** kommt eine neue Einheitenart in
+   die Reserve. Wähle ihr erstes Feld selbst. Weitere Exemplare derselben Art
+   und Seltenheit füllen den Trupp automatisch bis drei. Die nächste Kopie
+   beginnt auf einem freien Feld einen weiteren Trupp.
+3. Tippe einen Trupp aus drei Einheiten an und wähle **Verschmelzen**, um auf
+   demselben Feld eine Einheit der nächsten Seltenheit zu bekommen. Die Stufen sind Common,
    Uncommon, Rare, Epic und Legendary.
-4. Ziehe bewegliche Figuren auf ein anderes Feld oder nutze **Umstellen**.
-   Gebäude bleiben auf dem gewählten Bauplatz. Helden rufst du aus drei
-   Truppen nach ihrem Rezept. Im Kampf setzt du ihre Fähigkeiten ein.
+4. Ziehe bewegliche Figuren auf ein hervorgehobenes Feld oder nutze **Verschieben**.
+   Zwei bewegliche Trupps können die Plätze tauschen. Gebäude bleiben auf dem
+   gewählten Bauplatz. Helden beschwörst du aus drei passenden Einheiten. Im
+   Kampf setzt du ihre Fähigkeiten ein.
 5. Wellen wechseln nach Zeit. Gegner bleiben auf dem Rundkurs, bis sie besiegt
    sind. Der gemeinsame Gegnerzähler und die Bossfristen entscheiden über den
    Ausgang. Gold, Essenz, Orakel und Schmiede helfen dir beim Ausbau.
@@ -56,7 +58,7 @@ Die Partie nutzt das Handy im Hochformat. Im Browser öffnet das Symbol neben de
 Verbindungsstatus den Vollbildmodus. Auf dem iPhone wähle in Safari **Teilen ›
 Zum Home-Bildschirm** und starte Pantheon über den Home-Bildschirm.
 
-Tastaturkürzel sind R zum Ziehen, M zum Umstellen, U zum Ausbauen, F für die
+Tastaturkürzel sind R zum Rekrutieren, M zum Verschieben, U zum Aufwerten, F für die
 Heldenfähigkeit und Leertaste für den Wellenstart. Escape bricht eine Zielauswahl ab.
 
 ## Entwicklung
@@ -97,6 +99,10 @@ liegen in der [Blender-Abnahme](art/reviews/feldzug/README.md). Die editierbaren
 Kontaktschatten in ein Mesh exportiert. Truppen, Helden, Gegner und Gebäude
 verwenden Armaturen. Studiolichter und Kameras gehören zu den Blender-Szenen
 und werden für die Porträts verwendet.
+
+Die Handyansicht lädt vereinfachte 3D-Meshes aus denselben Blender-Exporten.
+Die Texturen und Animationen werden dabei übernommen. `npm run art:mobile`
+erzeugt diese Dateien nach einer Änderung an den Originalmodellen neu.
 
 Mit Blender 4.3 und FFmpeg lassen sich die Assets erneut erzeugen.
 

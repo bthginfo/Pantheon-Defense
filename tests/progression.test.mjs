@@ -80,7 +80,7 @@ test('campaign clears and mastery unlock harder rooms and high-wave loot equips 
   await credit(handle, result); // Older Normal victories continue to count.
   await assert.rejects(createMatch(handle, settings), /für dein Konto noch gesperrt/);
   await credit(handle, { ...result, id: 'won-second', difficulty: 'normal' });
-  await assert.rejects(createMatch(handle, { ...settings, mode: 'duo', friend: guest.handle }), /für den eingeladenen Rufnamen noch gesperrt/);
+  await assert.rejects(createMatch(handle, { ...settings, mode: 'duo', friend: guest.handle }), /für das eingeladene Konto noch gesperrt/);
   await assert.rejects(changeFieldSign(handle, { id: 'supply', action: 'equip' }, catalog.fieldSigns), /Schmiede dieses Feldzeichen zuerst/);
   const forge = { id: 'supply', action: 'forge', expected: 0 };
   const receipts = await Promise.allSettled([changeFieldSign(handle, forge, catalog.fieldSigns), changeFieldSign(handle, forge, catalog.fieldSigns)]);

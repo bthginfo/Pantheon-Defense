@@ -9,8 +9,9 @@ use bevy::{
     gltf::{Gltf, GltfAssetLabel},
     pbr::{CascadeShadowConfigBuilder, NotShadowCaster},
     prelude::*,
-    render::camera::ScalingMode,
+    render::camera::{CameraUpdateSystem, ScalingMode},
     scene::SceneInstanceReady,
+    transform::TransformSystem,
     window::{PresentMode, WindowPlugin, WindowResolution},
 };
 use pantheon_simulation::{self as sim, Game, Point};
@@ -23,7 +24,9 @@ use std::{
 use wasm_bindgen::prelude::*;
 
 mod circuit_art;
+mod combat_fx;
 mod scenery;
+use combat_fx::{CombatFx, WeaponLook};
 use scenery::{Palette, Scenery};
 
 thread_local! {
@@ -35,6 +38,8 @@ struct Mailbox {
     game: Option<(String, Game)>,
     focus: Option<(usize, f32)>,
     viewer: usize,
+    viewing: bool,
+    layout_dirty: bool,
 }
 
 #[derive(Resource)]
@@ -81,15 +86,21 @@ pub fn play_arena(mobile: bool) {
                 pull_game,
                 orient_camera,
                 animate_figures,
+                circuit_art::update_contact_shadows,
                 animate_projectiles,
-                fade_fx,
+                combat_fx::animate,
                 play_clips,
                 focus_radius,
                 mark_boss_zone,
-                project_slots,
                 report_fps,
             )
                 .chain(),
+        )
+        .add_systems(
+            PostUpdate,
+            project_slots
+                .after(TransformSystem::TransformPropagate)
+                .after(CameraUpdateSystem),
         );
     app.run();
 }
@@ -99,8 +110,22 @@ pub fn set_room_state(room: &str, state: &str) -> bool {
     let Ok(game) = serde_json::from_str(state) else {
         return false;
     };
-    MAIL.with(|mail| mail.borrow_mut().game = Some((room.into(), game)));
+    MAIL.with(|mail| {
+        let mut mail = mail.borrow_mut();
+        mail.game = Some((room.into(), game));
+        mail.viewing = true;
+    });
     true
+}
+
+#[wasm_bindgen]
+pub fn close_board() {
+    MAIL.with(|mail| {
+        let mut mail = mail.borrow_mut();
+        mail.game = None;
+        mail.viewing = false;
+        mail.layout_dirty = true;
+    });
 }
 
 #[wasm_bindgen]
@@ -150,12 +175,11 @@ struct Arena {
     pressure: usize,
     scenery: Vec<Entity>,
     figures: HashMap<u32, Entity>,
-    shots: HashMap<u32, Entity>,
+    shots: HashMap<u32, VisibleShot>,
     graph: HashMap<String, Clips>,
     assets: HashMap<String, Handle<Gltf>>,
     seen: HashSet<u32>,
     projected: Vec2,
-    projection_sent: f64,
     tick: u64,
     tick_arrived: f64,
     boss_cast: Option<sim::BossCast>,
@@ -174,16 +198,30 @@ struct Figure {
     target: Vec3,
     stride: Option<Stride>,
     stack: u8,
-    size: f32,
+    members: Vec<Entity>,
     yaw: f32,
     enemy: bool,
-    traveling: bool,
-    motion_until: f64,
+    glide: Option<Glide>,
     clip_until: f64,
     clip: &'static str,
-    dying_until: Option<f64>,
+    fall: Option<Fall>,
+    hit_at: Option<f64>,
     players: Vec<Entity>,
     active_clip: &'static str,
+}
+
+#[derive(Component)]
+struct FormationMember(Entity);
+
+struct Fall {
+    begins: f64,
+    ends: f64,
+}
+
+struct Glide {
+    from: Vec3,
+    began: f64,
+    seconds: f64,
 }
 
 struct Stride {
@@ -206,17 +244,12 @@ struct Projectile {
     began: f64,
     ends: f64,
     arc: f32,
+    look: WeaponLook,
 }
 
-#[derive(Component)]
-struct Particle {
-    begins: f64,
-    lasts: f64,
-    velocity: Vec3,
-    spin: Vec3,
-    start: Vec3,
-    scale: Vec3,
-    ring: bool,
+struct VisibleShot {
+    entity: Option<Entity>,
+    arrives: f64,
 }
 
 #[derive(Resource)]
@@ -228,8 +261,6 @@ struct Shared {
     rays: [Handle<StandardMaterial>; 6],
     ring: Handle<StandardMaterial>,
     team: [Handle<StandardMaterial>; 2],
-    footprint: Handle<Mesh>,
-    contact: Handle<StandardMaterial>,
 }
 
 fn p3(point: Point, y: f32) -> Vec3 {
@@ -282,21 +313,13 @@ fn setup(
         }),
         team: [Color::srgb(0.28, 0.86, 0.83), Color::srgb(0.96, 0.53, 0.39)]
             .map(|color| mats.add(simple(color, 0.28))),
-        footprint: meshes.add(circuit_art::soft_shadow()),
-        contact: mats.add(StandardMaterial {
-            base_color: Color::WHITE,
-            alpha_mode: AlphaMode::Blend,
-            unlit: true,
-            cull_mode: None,
-            ..default()
-        }),
     };
 
     commands.spawn((
         ArenaCamera,
         Camera3d::default(),
         Camera {
-            is_active: true,
+            is_active: false,
             ..default()
         },
         Projection::Orthographic(OrthographicProjection {
@@ -349,7 +372,7 @@ fn setup(
     for enemy in sim::catalog().enemies.iter().take(3) {
         arena.assets.insert(
             enemy.id.clone(),
-            asset_server.load(format!("models/{}.glb", enemy.id)),
+            asset_server.load(model_path(&enemy.id, graphics.mobile)),
         );
     }
     for id in ["fx_bolt", "fx_sun", "fx_frost", "fx_spark"] {
@@ -357,6 +380,10 @@ fn setup(
             .assets
             .insert(id.into(), asset_server.load(format!("models/{id}.glb")));
     }
+    let combat_fx = CombatFx::new(&mut commands, &mut meshes, &mut mats);
+    let contact_shadows = circuit_art::ContactShadows::new(&mut commands, &mut meshes, &mut mats);
+    commands.insert_resource(combat_fx);
+    commands.insert_resource(contact_shadows);
     commands.insert_resource(shared);
 }
 
@@ -365,8 +392,10 @@ fn pull_game(
     mut arena: ResMut<Arena>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut mats: ResMut<Assets<StandardMaterial>>,
-    mut figures: Query<&mut Figure>,
+    mut figures: Query<(&mut Figure, &Transform)>,
     mut projectiles: Query<&mut Projectile>,
+    mut combat_fx: ResMut<CombatFx>,
+    graphics: Res<Graphics>,
     asset_server: Res<AssetServer>,
     gltfs: Res<Assets<Gltf>>,
     shared: Res<Shared>,
@@ -376,15 +405,19 @@ fn pull_game(
         return;
     };
     let now = time.elapsed_secs_f64();
-    if arena.room != room {
+    let fresh_room = arena.room != room;
+    if fresh_room {
         arena.camera_configured = false;
         arena.ready = false;
         for (_, entity) in arena.figures.drain() {
             commands.entity(entity).despawn();
         }
-        for (_, entity) in arena.shots.drain() {
-            commands.entity(entity).despawn();
+        for (_, shot) in arena.shots.drain() {
+            if let Some(entity) = shot.entity {
+                commands.entity(entity).despawn();
+            }
         }
+        combat_fx.clear();
         arena.room = room;
         arena.seen.clear();
     }
@@ -393,7 +426,7 @@ fn pull_game(
             commands.entity(ent).despawn();
         }
         arena.scenery = if game.on_circuit() {
-            circuit_art::build(&mut commands, &asset_server, &game.theme)
+            circuit_art::build(&mut commands, &asset_server, &game.theme, graphics.mobile)
         } else {
             commands.insert_resource(ClearColor(Color::srgb_u8(25, 70, 77)));
             Scenery::new(
@@ -426,58 +459,57 @@ fn pull_game(
 
     arena.pressure = game.enemies.len();
     let tiles = game.tiles();
-    let death: HashMap<_, _> = game
+    let recent = |effect: &&sim::Event| effect.tick + 22 >= game.tick;
+    let deaths: HashSet<_> = game
         .events
         .iter()
-        .filter(|e| e.kind == "death")
-        .map(|e| (e.source, e))
+        .filter(recent)
+        .filter(|effect| effect.kind == "death")
+        .map(|effect| effect.source)
         .collect();
-    let current_pieces: HashSet<_> = game
+    let current: HashSet<_> = game
         .pieces
         .iter()
         .map(|p| p.id)
         .chain(game.enemies.iter().map(|e| e.id))
         .collect();
-    let gone: Vec<_> = arena
-        .figures
-        .iter()
-        .filter(|(id, _)| !current_pieces.contains(id))
-        .map(|(id, entity)| (*id, *entity))
-        .collect();
-    for (id, entity) in gone {
-        let Ok(mut figure) = figures.get_mut(entity) else {
-            continue;
-        };
-        if figure.dying_until.is_some() {
-            continue;
+    arena.figures.retain(|id, entity| {
+        if current.contains(id)
+            || deaths.contains(id)
+            || figures
+                .get(*entity)
+                .is_ok_and(|(figure, _)| figure.fall.is_some())
+        {
+            return true;
         }
-        if let Some(e) = death.get(&id) {
-            figure.target = p3(e.pos, 0.36);
-            figure.stride = None;
-            figure.clip = "Death";
-            figure.dying_until = Some(now + 1.23);
-        } else {
-            commands.entity(entity).despawn();
-            arena.figures.remove(&id);
-        }
-    }
+        commands.entity(*entity).despawn();
+        false
+    });
 
     for piece in &game.pieces {
         let position = p3(tiles[piece.slot], 0.42);
         if let Some(entity) = arena.figures.get(&piece.id) {
-            if let Ok(mut figure) = figures.get_mut(*entity) {
-                figure.stack = piece.stack;
+            if let Ok((mut figure, pose)) = figures.get_mut(*entity) {
+                if figure.stack != piece.stack {
+                    let scene = figure_scene(&asset_server, &gltfs, &arena, &piece.actor);
+                    set_formation(&mut commands, *entity, &mut figure, scene, piece.stack);
+                }
                 if figure.target.distance(position) > 0.3 {
-                    figure.yaw = facing(position - figure.target);
+                    figure.yaw = facing(position - pose.translation);
+                    figure.glide = Some(Glide {
+                        from: pose.translation,
+                        began: now,
+                        seconds: (0.20 + f64::from(pose.translation.distance(position)) * 0.031)
+                            .min(0.48),
+                    });
                     figure.target = position;
-                    figure.motion_until = now + 0.45;
                 }
             }
         } else {
             arena
                 .assets
                 .entry(piece.actor.clone())
-                .or_insert_with(|| asset_server.load(format!("models/{}.glb", piece.actor)));
+                .or_insert_with(|| asset_server.load(model_path(&piece.actor, graphics.mobile)));
             let entity = spawn_figure(
                 &mut commands,
                 &asset_server,
@@ -491,14 +523,13 @@ fn pull_game(
                     std::f32::consts::PI + 0.32
                 },
                 false,
+                piece.stack,
             );
-            let stack = piece.stack;
             let appear = if piece.tier > 1 { "Ascend" } else { "Spawn" };
             commands
                 .entity(entity)
                 .queue(move |mut entity: EntityWorldMut| {
                     if let Some(mut figure) = entity.get_mut::<Figure>() {
-                        figure.stack = stack;
                         figure.clip = appear;
                         figure.clip_until = now + 0.98;
                     }
@@ -560,17 +591,16 @@ fn pull_game(
             time: now,
         };
         if let Some(entity) = arena.figures.get(&enemy.id) {
-            if let Ok(mut figure) = figures.get_mut(*entity) {
+            if let Ok((mut figure, _)) = figures.get_mut(*entity) {
                 figure.target = position;
                 figure.yaw = yaw;
                 figure.stride = Some(stride);
-                figure.traveling = true;
             }
         } else {
             arena
                 .assets
                 .entry(enemy.kind.clone())
-                .or_insert_with(|| asset_server.load(format!("models/{}.glb", enemy.kind)));
+                .or_insert_with(|| asset_server.load(model_path(&enemy.kind, graphics.mobile)));
             let entity = spawn_figure(
                 &mut commands,
                 &asset_server,
@@ -580,6 +610,7 @@ fn pull_game(
                 position,
                 yaw,
                 true,
+                1,
             );
             if game.on_circuit() {
                 let size = if family == "hound" {
@@ -600,189 +631,214 @@ fn pull_game(
         }
     }
 
+    let missile_limit = if graphics.mobile { 54 } else { 94 };
+    let mut missiles = arena
+        .shots
+        .values()
+        .filter(|shot| shot.entity.is_some() && shot.arrives > now)
+        .count();
+    let mut stagger = 0;
     for shot in &game.shots {
         if shot.impact + 13 < game.tick {
             continue;
         }
         let start = p3(shot.from, 1.35);
         let target = p3(shot.to, 0.98);
-        if let Some(entity) = arena.shots.get(&shot.id) {
-            if let Ok(mut missile) = projectiles.get_mut(*entity) {
-                missile.to = target;
+        if let Some(cue) = arena.shots.get(&shot.id) {
+            if let Some(entity) = cue.entity {
+                if let Ok(mut missile) = projectiles.get_mut(entity) {
+                    if missile.to.distance_squared(target) < 2.8 {
+                        missile.to = target;
+                    }
+                }
             }
             continue;
         }
 
+        if missiles >= missile_limit || (fresh_room && shot.impact < game.tick) {
+            arena.shots.insert(
+                shot.id,
+                VisibleShot {
+                    entity: None,
+                    arrives: now,
+                },
+            );
+            continue;
+        }
+        missiles += 1;
         if let Some(entity) = arena.figures.get(&shot.source) {
-            if let Ok(mut figure) = figures.get_mut(*entity) {
-                figure.yaw = facing(target - start);
-                if !matches!(figure.clip, "Cast" | "Spawn" | "Ascend") || figure.clip_until <= now {
+            if let Ok((mut figure, _)) = figures.get_mut(*entity) {
+                if figure.glide.is_none()
+                    && (!matches!(figure.clip, "Cast" | "Spawn" | "Ascend")
+                        || figure.clip_until <= now)
+                {
+                    figure.yaw = facing(target - start);
                     figure.clip = "Attack";
                     figure.active_clip = "";
-                    figure.clip_until = now + 0.47;
+                    figure.clip_until = now + 0.42;
                 }
             }
         }
-        let asset = match shot.attack.as_str() {
-            "stone" | "guard" => "fx_spark",
-            "pierce" | "arrow" | "shred" | "bleed" => "fx_bolt",
-            "frost" => "fx_frost",
-            _ => "fx_sun",
-        };
-        let lifetime = (shot.impact.saturating_sub(shot.started) as f64) * 0.05;
-        let remaining = ((shot.impact.saturating_sub(game.tick) as f64) * 0.05).max(0.16);
-        let scene = figure_scene(&asset_server, &gltfs, &arena, asset);
+        // Snapshots arrive in batches. Keep the flight readable and fire a short staggered volley.
+        let look = WeaponLook::for_attack(&shot.attack);
+        let remaining = shot.impact.saturating_sub(game.tick) as f64 * 0.05;
+        let began = now + 0.025 * (stagger % 6) as f64;
+        stagger += 1;
+        let arrives = began + remaining.max(look.minimum_flight()).min(0.68);
+        let scene = figure_scene(&asset_server, &gltfs, &arena, look.model());
         let entity = commands
             .spawn((
                 SceneRoot(scene),
-                Transform::from_translation(start)
-                    .with_rotation(Quat::from_rotation_y(facing(target - start))),
+                Transform::from_translation(start).with_scale(Vec3::splat(0.001)),
                 NotShadowCaster,
                 Projectile {
                     from: start,
                     to: target,
-                    began: now - (lifetime - remaining).max(0.) * 0.8,
-                    ends: now + remaining,
-                    arc: if shot.attack == "guard" { 0.18 } else { 0.76 },
+                    began,
+                    ends: arrives,
+                    arc: look.arc(),
+                    look,
                 },
             ))
             .id();
-        // Projectiles already have their Blender mesh as a SceneRoot. Their travel is driven by the hit tick.
-        arena.shots.insert(shot.id, entity);
+        arena.shots.insert(
+            shot.id,
+            VisibleShot {
+                entity: Some(entity),
+                arrives,
+            },
+        );
     }
     let present: HashSet<_> = game
         .shots
         .iter()
-        .filter(|s| s.impact + 13 >= game.tick)
-        .map(|s| s.id)
+        .filter(|shot| shot.impact + 13 >= game.tick)
+        .map(|shot| shot.id)
         .collect();
-    arena.shots.retain(|id, entity| {
-        if present.contains(id) {
+    arena.shots.retain(|id, cue| {
+        if present.contains(id) || now < cue.arrives + 0.09 {
             return true;
         }
-        if projectiles
-            .get(*entity)
-            .is_ok_and(|missile| now < missile.ends + 0.07)
-        {
-            return true;
+        if let Some(entity) = cue.entity {
+            commands.entity(entity).despawn();
         }
-        commands.entity(*entity).despawn();
         false
     });
 
-    for effect in &game.events {
-        if !arena.seen.insert(effect.id) || effect.tick + 26 < game.tick {
+    let effect_limit: usize = if graphics.mobile { 155 } else { 272 };
+    let mut budget = if fresh_room {
+        effect_limit
+    } else {
+        effect_limit.saturating_sub(combat_fx.active())
+    };
+    let mut cast_hits = Vec::new();
+    for effect in game.events.iter().filter(recent) {
+        if !arena.seen.insert(effect.id) {
             continue;
         }
-        let (color, radius, duration, count) = match effect.kind.as_str() {
+        if fresh_room && effect.tick + 5 < game.tick {
+            continue;
+        }
+        match effect.kind.as_str() {
             "impact" => {
+                let at = effect
+                    .shot
+                    .and_then(|id| arena.shots.get(&id))
+                    .map_or(now, |flight| flight.arrives.max(now));
                 if let Some(entity) = arena.figures.get(&effect.source) {
-                    if let Ok(mut figure) = figures.get_mut(*entity) {
-                        if figure.dying_until.is_none() {
-                            if figure.clip_until <= now || figure.clip == "Idle" {
-                                figure.clip = "Hit";
-                                figure.clip_until = now + 0.24;
+                    if let Ok((mut figure, _)) = figures.get_mut(*entity) {
+                        figure.hit_at = Some(figure.hit_at.map_or(at, |first| first.min(at)));
+                    }
+                }
+                let mut sparks = budget.saturating_sub(30);
+                if sparks > 0 {
+                    let carried = sparks;
+                    combat_fx.impact(&mut sparks, effect, at, graphics.mobile);
+                    budget -= carried - sparks;
+                }
+            }
+            "cast" => {
+                if let Some(entity) = arena.figures.get(&effect.source) {
+                    if let Ok((mut figure, _)) = figures.get_mut(*entity) {
+                        figure.clip = "Cast";
+                        figure.active_clip = "";
+                        figure.clip_until = now + 0.79;
+                        if let Some(origin) = effect.origin {
+                            if sim::distance(origin, effect.pos) > 0.12 {
+                                figure.yaw = facing(p3(effect.pos, 0.) - p3(origin, 0.));
                             }
                         }
                     }
                 }
-                (
-                    match effect.actor.as_str() {
-                        "frost" => 1,
-                        "sun" => 0,
-                        "pierce" | "arrow" => 3,
-                        _ => 2,
-                    },
-                    if effect.actor == "sun" { 1.13 } else { 0.41 },
-                    0.28,
-                    if effect.actor == "sun" { 7 } else { 3 },
-                )
+                combat_fx.cast(&mut budget, effect, now, graphics.mobile);
+                cast_hits.push((effect.tick, effect.pos, effect.power, now + 0.24));
             }
             "death" => {
-                if !arena.figures.contains_key(&effect.source) {
+                let at = cast_hits
+                    .iter()
+                    .filter(|(tick, pos, radius, _)| {
+                        effect.tick == *tick && sim::distance(*pos, effect.pos) <= *radius
+                    })
+                    .map(|(_, _, _, at)| *at)
+                    .fold(now, f64::max);
+                let position = p3(effect.pos, 0.36);
+                let fall = if let Some(entity) = arena.figures.get(&effect.source) {
+                    if let Ok((mut figure, _)) = figures.get_mut(*entity) {
+                        let begins = at.max(figure.hit_at.unwrap_or(now));
+                        figure.target = position;
+                        figure.stride = None;
+                        figure.fall = Some(Fall {
+                            begins,
+                            ends: begins + 1.14,
+                        });
+                        begins
+                    } else {
+                        at
+                    }
+                } else {
                     arena.assets.entry(effect.actor.clone()).or_insert_with(|| {
                         asset_server.load(format!("models/{}.glb", effect.actor))
                     });
-                    let id = spawn_figure(
+                    let entity = spawn_figure(
                         &mut commands,
                         &asset_server,
                         &gltfs,
                         &arena,
                         &effect.actor,
-                        p3(effect.pos, 0.34),
+                        position,
                         0.,
                         true,
+                        1,
                     );
                     commands
-                        .entity(id)
+                        .entity(entity)
                         .queue(move |mut entity: EntityWorldMut| {
-                            if let Some(mut f) = entity.get_mut::<Figure>() {
-                                f.dying_until = Some(now + 1.0);
-                                f.clip = "Death";
+                            if let Some(mut figure) = entity.get_mut::<Figure>() {
+                                figure.fall = Some(Fall {
+                                    begins: at,
+                                    ends: at + 1.14,
+                                });
                             }
                         });
-                    arena.figures.insert(effect.source, id);
-                }
-                (5, 0.68, 0.46, 6)
+                    arena.figures.insert(effect.source, entity);
+                    at
+                };
+                combat_fx.accent(&mut budget, effect, fall + 0.08);
             }
-            "cast" => {
-                if let Some(entity) = arena.figures.get(&effect.source) {
-                    if let Ok(mut figure) = figures.get_mut(*entity) {
-                        figure.clip = "Cast";
-                        figure.active_clip = "";
-                        figure.clip_until = now + 0.92;
-                    }
-                }
-                (
-                    match effect.actor.as_str() {
-                        "mist" => 1,
-                        "thunder" => 4,
-                        "meteor" => 5,
-                        _ => 3,
-                    },
-                    effect.power,
-                    0.98,
-                    15,
-                )
-            }
-            "merge" => (0, 1.18, 0.74, 12),
-            "upgrade" => (1, 0.77, 0.5, 8),
-            "place" => (3, 0.64, 0.4, 5),
-            "leak" => (5, 1.48, 0.61, 10),
-            "boss" => (4, 1.48, 0.75, 9),
-            "stack" => (1, 0.6, 0.45, 6),
-            "ritual" => (4, 1.48, 1.07, 13),
-            "draw" => (3, 0.58, 0.36, 4),
-            "victory" => {
-                for piece in &game.pieces {
-                    if let Some(entity) = arena.figures.get(&piece.id) {
-                        if let Ok(mut figure) = figures.get_mut(*entity) {
-                            figure.clip = "Celebrate";
-                            figure.clip_until = now + 1.48;
+            _ => {
+                if effect.kind == "victory" {
+                    for piece in &game.pieces {
+                        if let Some(entity) = arena.figures.get(&piece.id) {
+                            if let Ok((mut figure, _)) = figures.get_mut(*entity) {
+                                figure.clip = "Celebrate";
+                                figure.clip_until = now + 1.48;
+                            }
                         }
                     }
                 }
-                (3, 2.25, 1.2, 19)
+                combat_fx.accent(&mut budget, effect, now);
             }
-            "boss_impact" => (5, effect.power, 0.78, 15),
-            _ => continue,
-        };
-        if arena.pressure > 34
-            && matches!(effect.kind.as_str(), "impact" | "death")
-            && effect.id % 2 != 0
-        {
-            continue;
         }
-        burst(
-            &mut commands,
-            &shared,
-            p3(effect.pos, 0.55),
-            now,
-            color,
-            radius,
-            duration,
-            count,
-        );
     }
     if arena.seen.len() > 4000 {
         let first = game.events.first().map_or(0, |e| e.id);
@@ -802,6 +858,7 @@ fn spawn_figure(
     position: Vec3,
     yaw: f32,
     enemy: bool,
+    stack: u8,
 ) -> Entity {
     let size = if arena.rule_version >= sim::CIRCUIT_RULES {
         match sim::actor(id).map(|actor| actor.kind.as_str()) {
@@ -813,31 +870,92 @@ fn spawn_figure(
         1.0
     };
     let scene = figure_scene(assets, gltfs, arena, id);
-    commands
+    let entity = commands
         .spawn((
-            SceneRoot(scene),
             Transform::from_translation(position)
                 .with_rotation(Quat::from_rotation_y(yaw))
                 .with_scale(Vec3::splat(size)),
-            Figure {
-                asset: id.into(),
-                target: position,
-                stride: None,
-                stack: 1,
-                size,
-                yaw,
-                enemy,
-                traveling: enemy,
-                motion_until: 0.,
-                clip_until: 0.,
-                clip: "Idle",
-                dying_until: None,
-                players: Vec::new(),
-                active_clip: "",
-            },
+            Visibility::default(),
         ))
-        .observe(find_player)
-        .id()
+        .id();
+    let mut figure = Figure {
+        asset: id.into(),
+        target: position,
+        stride: None,
+        stack: 0,
+        members: Vec::new(),
+        yaw,
+        enemy,
+        glide: None,
+        clip_until: 0.,
+        clip: "Idle",
+        fall: None,
+        hit_at: None,
+        players: Vec::new(),
+        active_clip: "",
+    };
+    set_formation(commands, entity, &mut figure, scene, stack);
+    commands.entity(entity).insert(figure);
+    entity
+}
+
+fn formation_layout(stack: u8) -> &'static [Vec3] {
+    static SINGLE: [Vec3; 1] = [Vec3::ZERO];
+    static PAIR: [Vec3; 2] = [Vec3::new(-0.43, 0., -0.10), Vec3::new(0.43, 0., 0.10)];
+    static TRIO: [Vec3; 3] = [
+        Vec3::new(-0.47, 0., -0.10),
+        Vec3::new(0.47, 0., -0.10),
+        Vec3::new(0., 0., 0.36),
+    ];
+    match stack {
+        2 => &PAIR,
+        3 => &TRIO,
+        _ => &SINGLE,
+    }
+}
+
+fn set_formation(
+    commands: &mut Commands,
+    group: Entity,
+    figure: &mut Figure,
+    scene: Handle<Scene>,
+    stack: u8,
+) {
+    figure.stack = stack.clamp(1, 3);
+    let positions = formation_layout(figure.stack);
+    if figure.members.len() > positions.len() {
+        for member in figure.members.drain(positions.len()..) {
+            commands.entity(member).despawn();
+        }
+        figure.active_clip = "";
+    }
+    for &position in &positions[figure.members.len()..] {
+        let member = commands
+            .spawn((
+                ChildOf(group),
+                FormationMember(group),
+                SceneRoot(scene.clone()),
+                Transform::from_translation(position).with_scale(Vec3::splat(if stack > 1 {
+                    0.78
+                } else {
+                    1.
+                })),
+            ))
+            .observe(find_player)
+            .id();
+        figure.members.push(member);
+    }
+}
+
+const MOBILE_MODELS: &str = include_str!("../../../public/assets/mobile/models.txt");
+
+fn model_path(id: &str, mobile: bool) -> String {
+    let directory = if mobile && MOBILE_MODELS.lines().any(|name| name == id) {
+        "mobile"
+    } else {
+        "models"
+    };
+    format!("{directory}/{id}.glb")
 }
 
 fn figure_scene(
@@ -846,13 +964,16 @@ fn figure_scene(
     arena: &Arena,
     id: &str,
 ) -> Handle<Scene> {
-    arena
-        .assets
-        .get(id)
+    let handle = arena.assets.get(id);
+    handle
         .and_then(|handle| gltfs.get(handle))
         .and_then(|asset| asset.default_scene.clone())
         .unwrap_or_else(|| {
-            assets.load(GltfAssetLabel::Scene(0).from_asset(format!("models/{id}.glb")))
+            let path = handle
+                .and_then(Handle::path)
+                .cloned()
+                .unwrap_or_else(|| model_path(id, false).into());
+            assets.load(GltfAssetLabel::Scene(0).from_asset(path))
         })
 }
 
@@ -860,19 +981,25 @@ fn find_player(
     ready: Trigger<SceneInstanceReady>,
     mut commands: Commands,
     mut figures: Query<&mut Figure>,
+    members: Query<&FormationMember>,
     children: Query<&Children>,
     animation: Query<&AnimationPlayer>,
 ) {
-    let Ok(mut figure) = figures.get_mut(ready.target()) else {
+    let Ok(member) = members.get(ready.target()) else {
         return;
     };
-    figure.players = children
+    let Ok(mut figure) = figures.get_mut(member.0) else {
+        return;
+    };
+    figure.players.retain(|player| animation.contains(*player));
+    for player in children
         .iter_descendants(ready.target())
-        .filter(|child| animation.get(*child).is_ok())
-        .collect();
-    for player in &figure.players {
-        commands.entity(*player).insert(AnimationTransitions::new());
+        .filter(|child| animation.contains(*child))
+    {
+        figure.players.push(player);
+        commands.entity(player).insert(AnimationTransitions::new());
     }
+    figure.active_clip = "";
 }
 
 fn play_clips(
@@ -889,11 +1016,13 @@ fn play_clips(
         if figure.players.is_empty() {
             continue;
         }
-        let desired = if figure.dying_until.is_some() {
+        let desired = if figure.fall.as_ref().is_some_and(|fall| time >= fall.begins) {
             "Death"
+        } else if figure.glide.is_some() && figure.clip != "Cast" {
+            "Walk"
         } else if figure.clip_until > time {
             figure.clip
-        } else if figure.enemy || figure.traveling || figure.motion_until > time {
+        } else if figure.enemy || figure.glide.is_some() {
             "Walk"
         } else {
             "Idle"
@@ -901,6 +1030,7 @@ fn play_clips(
         if desired == figure.active_clip {
             continue;
         }
+        figure.players.retain(|player| players.contains(*player));
         if !arena.graph.contains_key(&figure.asset) {
             let Some(source) = arena
                 .assets
@@ -997,6 +1127,7 @@ fn animate_figures(
     mut commands: Commands,
     mut arena: ResMut<Arena>,
     mut figures: Query<(&mut Figure, &mut Transform)>,
+    mut members: Query<&mut Transform, (With<FormationMember>, Without<Figure>)>,
     time: Res<Time>,
 ) {
     let now = time.elapsed_secs_f64();
@@ -1005,13 +1136,19 @@ fn animate_figures(
     let rules = arena.rule_version;
     arena.figures.retain(|_, entity| {
         if let Ok((mut figure, mut trans)) = figures.get_mut(*entity) {
-            if figure.dying_until.is_some_and(|last| now >= last) {
+            if figure.fall.as_ref().is_some_and(|fall| now >= fall.ends) {
                 commands.entity(*entity).despawn();
                 return false;
             }
+            if figure.hit_at.is_some_and(|at| now >= at) {
+                figure.hit_at = None;
+                if figure.fall.is_none() && figure.clip_until <= now {
+                    figure.clip = "Hit";
+                    figure.clip_until = now + 0.21;
+                }
+            }
             let blend = 1. - (-delta * if figure.enemy { 16. } else { 13. }).exp();
-            let previous = trans.translation;
-            let destination = if let Some(track) = &figure.stride {
+            if let Some(track) = &figure.stride {
                 let offset = ((now - track.time) as f32).clamp(0., 0.78) * track.speed;
                 let progress = track.progress + offset;
                 let pos = p3(sim::route_point(rules, &theme, track.lane, progress), 0.36);
@@ -1022,19 +1159,27 @@ fn animate_figures(
                 if (ahead - pos).length_squared() > 0.004 {
                     figure.yaw = facing(ahead - pos);
                 }
-                pos
+                trans.translation = trans.translation.lerp(pos, blend);
+            } else if let Some(glide) = &figure.glide {
+                let t = ((now - glide.began) / glide.seconds).clamp(0., 1.) as f32;
+                trans.translation = glide.from.lerp(figure.target, 1. - (1. - t).powi(2));
+                if t >= 1. {
+                    figure.glide = None;
+                }
             } else {
-                figure.target
-            };
-            trans.translation = previous.lerp(destination, blend);
-            let scale = figure.size + f32::from(figure.stack.saturating_sub(1)) * 0.055;
-            trans.scale = trans.scale.lerp(Vec3::splat(scale), (delta * 9.).min(1.));
+                trans.translation = figure.target;
+            }
+            for (&entity, &position) in figure.members.iter().zip(formation_layout(figure.stack)) {
+                let Ok(mut pose) = members.get_mut(entity) else {
+                    continue;
+                };
+                pose.translation = pose.translation.lerp(position, blend);
+                let scale = if figure.stack > 1 { 0.78 } else { 1. };
+                pose.scale = pose.scale.lerp(Vec3::splat(scale), blend);
+            }
             trans.rotation = trans
                 .rotation
                 .slerp(Quat::from_rotation_y(figure.yaw), (delta * 11.).min(1.0));
-            if !figure.enemy {
-                figure.traveling = previous.distance(figure.target) > 0.085;
-            }
         }
         true
     });
@@ -1043,98 +1188,17 @@ fn animate_figures(
 fn animate_projectiles(time: Res<Time>, mut query: Query<(&Projectile, &mut Transform)>) {
     let now = time.elapsed_secs_f64();
     for (shot, mut transform) in &mut query {
-        let t = ((now - shot.began) / (shot.ends - shot.began)).clamp(0., 1.) as f32;
-        let next = shot.from.lerp(shot.to, t);
-        let v = shot.to - shot.from;
-        transform.translation = next + Vec3::Y * (std::f32::consts::PI * t).sin() * shot.arc;
-        transform.rotation =
-            Quat::from_rotation_y(facing(v)) * Quat::from_rotation_x((0.5 - t) * shot.arc);
-        transform.scale = Vec3::splat(if t >= 1. {
-            0.001
-        } else {
-            0.83 + (t * 7.0).sin() * 0.12
-        });
-    }
-}
-
-fn burst(
-    commands: &mut Commands,
-    shared: &Shared,
-    pos: Vec3,
-    now: f64,
-    color: usize,
-    radius: f32,
-    duration: f64,
-    count: usize,
-) {
-    let material = shared.rays[color].clone();
-    commands.spawn((
-        Mesh3d(shared.line.clone()),
-        MeshMaterial3d(material.clone()),
-        Transform::from_translation(pos),
-        Particle {
-            begins: now,
-            lasts: duration,
-            velocity: Vec3::new(radius, 0., 0.),
-            spin: Vec3::ZERO,
-            start: pos - Vec3::Y * 0.16,
-            scale: Vec3::splat(0.48),
-            ring: true,
-        },
-    ));
-    for i in 0..count {
-        let angle = i as f32 * 2.399;
-        let power = 1. + (i % 4) as f32 * 0.55;
-        let velocity = Vec3::new(
-            angle.cos() * power,
-            1.25 + power * 0.68,
-            angle.sin() * power,
-        );
-        let scale =
-            Vec3::new(0.08, 0.12 + 0.02 * power, 0.06) * if radius > 1.4 { 1.46 } else { 1. };
-        commands.spawn((
-            Mesh3d(shared.crystal.clone()),
-            MeshMaterial3d(material.clone()),
-            Transform::from_translation(pos).with_scale(scale),
-            Particle {
-                begins: now,
-                lasts: duration * (0.7 + 0.1 * (i % 4) as f64),
-                velocity: velocity * radius.sqrt(),
-                spin: Vec3::new(angle, 2., power),
-                start: pos,
-                scale,
-                ring: false,
-            },
-        ));
-    }
-}
-
-fn fade_fx(
-    mut commands: Commands,
-    time: Res<Time>,
-    mut particles: Query<(Entity, &Particle, &mut Transform)>,
-) {
-    let now = time.elapsed_secs_f64();
-    for (entity, particle, mut transform) in &mut particles {
-        let elapsed = (now - particle.begins) as f32;
-        let t = elapsed / particle.lasts as f32;
-        if t > 1. {
-            commands.entity(entity).despawn();
-        } else if particle.ring {
-            transform.translation = particle.start;
-            let size = 0.26 + particle.velocity.x * (1. - (1. - t).powi(2));
-            transform.scale = Vec3::new(size, (1. - t).max(0.01) * 0.22, size);
-        } else {
-            transform.translation =
-                particle.start + particle.velocity * elapsed - Vec3::Y * 4.4 * elapsed.powi(2);
-            transform.scale = particle.scale * (1. - t).max(0.01);
-            transform.rotation = Quat::from_euler(
-                EulerRot::XYZ,
-                particle.spin.x * elapsed,
-                particle.spin.y * elapsed,
-                particle.spin.z * elapsed,
-            );
+        if now < shot.began || now >= shot.ends {
+            transform.scale = Vec3::splat(0.001);
+            continue;
         }
+        let t = ((now - shot.began) / (shot.ends - shot.began)) as f32;
+        let arc = std::f32::consts::PI * t;
+        transform.translation = shot.from.lerp(shot.to, t) + Vec3::Y * arc.sin() * shot.arc;
+        let tangent = shot.to - shot.from + Vec3::Y * (arc.cos() * shot.arc * std::f32::consts::PI);
+        transform.rotation =
+            Quat::from_rotation_arc(Vec3::Z, tangent.try_normalize().unwrap_or(Vec3::Z));
+        transform.scale = Vec3::splat(0.94);
     }
 }
 
@@ -1192,18 +1256,29 @@ fn mark_boss_zone(
 fn orient_camera(
     mut arena: ResMut<Arena>,
     graphics: Res<Graphics>,
-    mut query: Query<(&mut Transform, &mut Projection), With<ArenaCamera>>,
+    mut query: Query<(&mut Camera, &mut Transform, &mut Projection), With<ArenaCamera>>,
 ) {
-    let viewer = MAIL.with(|mail| mail.borrow().viewer);
-    if arena.camera_configured && arena.viewer == viewer {
-        return;
+    let (viewer, viewing, layout_dirty) = MAIL.with(|mail| {
+        let mut mail = mail.borrow_mut();
+        (
+            mail.viewer,
+            mail.viewing,
+            std::mem::take(&mut mail.layout_dirty),
+        )
+    });
+    if layout_dirty {
+        arena.ready = false;
+        arena.projected = Vec2::ZERO;
     }
-    if arena.theme.is_empty() {
-        return;
-    }
-    let Ok((mut transform, mut projection)) = query.single_mut() else {
+    let Ok((mut camera, mut transform, mut projection)) = query.single_mut() else {
         return;
     };
+    if camera.is_active != viewing {
+        camera.is_active = viewing;
+    }
+    if !viewing || arena.theme.is_empty() || (arena.camera_configured && arena.viewer == viewer) {
+        return;
+    }
     if arena.rule_version >= sim::CIRCUIT_RULES {
         let side = if viewer == 0 { 1. } else { -1. };
         *transform = Transform::from_xyz(2.02 * side, 25.7, 21.4 * side)
@@ -1234,6 +1309,11 @@ fn orient_camera(
 
 fn report_fps(time: Res<Time<Real>>, mut sample: Local<FpsSample>) {
     let now = time.elapsed_secs_f64();
+    if !MAIL.with(|mail| mail.borrow().viewing) {
+        sample.first = now;
+        sample.frames = 0;
+        return;
+    }
     sample.frames += 1;
     let time_passed = now - sample.first;
     if time_passed >= 1.5 {
@@ -1256,19 +1336,20 @@ struct ProjectionData {
 fn project_slots(
     mut arena: ResMut<Arena>,
     camera: Query<(&Camera, &GlobalTransform), With<ArenaCamera>>,
-    time: Res<Time>,
 ) {
     let Ok((camera, transform)) = camera.single() else {
         return;
     };
+    if !camera.is_active {
+        return;
+    }
     let Some(size) = camera.logical_viewport_size() else {
         return;
     };
     if size.x < 4. || size.y < 4. || arena.theme.is_empty() {
         return;
     }
-    let now = time.elapsed_secs_f64();
-    if size == arena.projected && now - arena.projection_sent < 1.0 {
+    if size == arena.projected && arena.ready {
         return;
     }
     let tiles = sim::tiles_for(arena.rule_version);
@@ -1288,7 +1369,6 @@ fn project_slots(
         event("pantheon-slots", &text);
     }
     arena.projected = size;
-    arena.projection_sent = now;
     if !arena.ready {
         arena.ready = true;
         event("pantheon-ready", "");

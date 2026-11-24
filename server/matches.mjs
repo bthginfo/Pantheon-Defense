@@ -22,7 +22,7 @@ async function getRoom(id) {
 function playerIndex(room, handle) {
   if (room.host.handle === handle) return 0;
   if (room.guest?.handle === handle && room.joined) return 1;
-  throw new HttpError(403, 'Dein Konto gehört zu einem anderen Spielraum.');
+  throw new HttpError(403, 'Dein Konto ist für diese Partie nicht eingeladen.');
 }
 
 function advance(room, now) {
@@ -57,7 +57,7 @@ export async function createMatch(handle, data) {
     throw new HttpError(403, `${difficulty.name} ist für dein Konto noch gesperrt.`);
   }
   if (!theme || !challenge || Math.max(theme.unlock, challenge.unlock) > host.level) {
-    throw new HttpError(403, 'Diese Karte oder Prüfung ist noch gesperrt.');
+    throw new HttpError(403, 'Diese Karte oder Spielvariante ist noch gesperrt.');
   }
   const duo = data.mode === 'duo';
   const guestHandle = normalizedHandle(data.friend);
@@ -67,7 +67,7 @@ export async function createMatch(handle, data) {
     throw error;
   }) : null;
   if (guest && !difficultyProgress(difficulty, catalog.difficulties, guest).unlocked) {
-    throw new HttpError(403, `${difficulty.name} ist für den eingeladenen Rufnamen noch gesperrt.`);
+    throw new HttpError(403, `${difficulty.name} ist für das eingeladene Konto noch gesperrt.`);
   }
   const id = randomUUID();
   const token = duo ? randomBytes(24).toString('base64url') : undefined;

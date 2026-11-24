@@ -394,6 +394,12 @@ pub struct Event {
     pub source: u32,
     pub pos: Point,
     pub power: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<Point>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shot: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<Point>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -545,7 +551,14 @@ impl Game {
         (self.rng as usize) % max
     }
 
-    fn event(&mut self, kind: &str, actor: &str, source: u32, pos: Point, power: f32) {
+    fn event(
+        &mut self,
+        kind: &str,
+        actor: &str,
+        source: u32,
+        pos: Point,
+        power: f32,
+    ) -> &mut Event {
         let id = self.id();
         self.events.push(Event {
             id,
@@ -555,7 +568,11 @@ impl Game {
             source,
             pos,
             power,
+            origin: None,
+            shot: None,
+            links: Vec::new(),
         });
+        self.events.last_mut().unwrap()
     }
 
     fn valid_slot(&self, player: usize, slot: usize) -> bool {
@@ -696,7 +713,7 @@ impl Game {
                 let slot = self.free_slot(player, slot)?;
                 let pool = self.recruit_pool(player);
                 if pool.is_empty() {
-                    return Err("Es sind keine Rekruten freigeschaltet.");
+                    return Err("Du hast noch keine Einheit freigeschaltet.");
                 }
                 self.spend(
                     player,
@@ -712,7 +729,7 @@ impl Game {
             }
             Action::RecruitMany { count } => {
                 if !self.on_circuit() || !(1..=5).contains(&count) {
-                    return Err("Diese Mehrfachziehung ist hier nicht verfügbar.");
+                    return Err("In dieser Partie kannst du nur einzeln rekrutieren.");
                 }
                 self.circuit_draw(player, None)?;
                 for _ in 1..count {
@@ -731,7 +748,7 @@ impl Game {
                 let definition = actor(&id).ok_or("Diese Figur gibt es nicht.")?;
                 if self.on_circuit() {
                     if definition.kind == "hero" {
-                        return Err("Helden erscheinen durch ihr Rezept.");
+                        return Err("Beschwöre Helden im Heldenmenü.");
                     }
                     if definition.kind == "building"
                         && self
@@ -744,13 +761,13 @@ impl Game {
                             .count()
                             >= 2
                     {
-                        return Err("Du kannst zwei Gebäude pro Aufstellung setzen.");
+                        return Err("Du hast bereits zwei Gebäude gebaut.");
                     }
                 } else if definition.new_in_v4 {
-                    return Err("Diese Figur steht in neuen Schlachten bereit.");
+                    return Err("Diese Figur kannst du ab deiner nächsten Partie einsetzen.");
                 }
                 if self.challenge == "levy" && definition.kind == "building" {
-                    return Err("Die Würfelwache lässt sich mit Truppen und Helden spielen.");
+                    return Err("In der Würfelwache kannst du Einheiten und Helden einsetzen.");
                 }
                 if definition.kind == "troop" || definition.theme != self.theme {
                     return Err("Diese Figur kann hier nicht gebaut werden.");
@@ -761,7 +778,7 @@ impl Game {
                     .find(|t| t.id == self.theme)
                     .map_or(1, |t| t.unlock);
                 if definition.unlock > self.players[player].level.max(entry_level) {
-                    return Err("Das schaltest du auf einem höheren Profillevel frei.");
+                    return Err("Dafür brauchst du eine höhere Profilstufe.");
                 }
                 if definition.kind == "hero"
                     && self.pieces.iter().any(|p| {
@@ -781,29 +798,38 @@ impl Game {
                     return Err("Gebäude bleiben an ihrem Bauplatz.");
                 }
                 if !self.valid_slot(player, slot) {
-                    return Err("Das Feld liegt außerhalb deiner Bauzone.");
+                    return Err("Wähle ein Feld in deiner Hälfte.");
                 }
                 if piece.slot == slot {
                     return Ok(());
                 }
-                if piece.moved_until > self.tick {
+                if !self.on_circuit() && piece.moved_until > self.tick {
                     return Err("Die Figur ist noch unterwegs.");
                 }
                 let previous = piece.slot;
+                let circuit = self.on_circuit();
+                let travel = if circuit {
+                    (4. + distance(tiles[previous], tiles[slot]) * 0.6).round() as u64
+                } else {
+                    10
+                }
+                .min(10);
                 if let Some(other) = self.pieces.iter().position(|p| p.slot == slot) {
                     let target = &mut self.pieces[other];
                     if target.owner != player
-                        || target.moved_until > self.tick
+                        || (!circuit && target.moved_until > self.tick)
                         || actor(&target.actor).is_some_and(|a| a.kind == "building")
                     {
                         return Err("Der Zielplatz ist belegt.");
                     }
-                    if self.on_circuit()
+                    if circuit
                         && self.pieces[other].actor == self.pieces[index].actor
                         && self.pieces[other].tier == self.pieces[index].tier
+                        && actor(&self.pieces[index].actor)
+                            .is_some_and(|entry| entry.kind == "troop")
                     {
                         if self.pieces[other].stack >= 3 {
-                            return Err("Auf diesem Feld stehen bereits drei identische Kämpfer.");
+                            return Err("Der Trupp auf diesem Feld ist bereits voll.");
                         }
                         let moved = (3 - self.pieces[other].stack).min(self.pieces[index].stack);
                         self.pieces[other].stack += moved;
@@ -819,11 +845,11 @@ impl Game {
                     }
                     let target = &mut self.pieces[other];
                     target.slot = previous;
-                    target.moved_until = self.tick + 10;
+                    target.moved_until = self.tick + travel;
                 }
                 let piece = &mut self.pieces[index];
                 piece.slot = slot;
-                piece.moved_until = self.tick + 10;
+                piece.moved_until = self.tick + travel;
                 let kind = piece.actor.clone();
                 self.event("move", &kind, id, tiles[slot], 0.);
             }
@@ -834,7 +860,7 @@ impl Game {
                 let index = self.piece_index(player, id)?;
                 let main = &self.pieces[index];
                 if main.tier >= MAX_TIER || actor(&main.actor).is_none_or(|a| a.kind != "troop") {
-                    return Err("Nur Truppen unter Rang III lassen sich verschmelzen.");
+                    return Err("Einheiten unter Rang III kannst du verschmelzen.");
                 }
                 let mut ids = vec![id];
                 ids.extend(
@@ -850,7 +876,9 @@ impl Game {
                         .map(|p| p.id),
                 );
                 if ids.len() != 3 {
-                    return Err("Du brauchst drei gleiche Truppen desselben Rangs.");
+                    return Err(
+                        "Zum Verschmelzen brauchst du drei gleiche Einheiten desselben Rangs.",
+                    );
                 }
                 let (slot, tier) = (main.slot, main.tier + 1);
                 let pool = self.recruit_pool(player);
@@ -863,7 +891,7 @@ impl Game {
                 let index = self.piece_index(player, id)?;
                 let piece = &self.pieces[index];
                 if piece.rank >= MAX_RANK {
-                    return Err("Diese Figur ist vollständig ausgebaut.");
+                    return Err("Diese Figur hat die höchste Stufe erreicht.");
                 }
                 let price = upgrade_price(piece.rank, piece.tier);
                 self.spend(player, price)?;
@@ -925,7 +953,7 @@ impl Game {
             .or(closest)
             .unwrap_or(origin);
         if distance(target, origin) > 9.5 {
-            return Err("Das liegt außerhalb der Reichweite.");
+            return Err("Wähle ein Ziel näher am Helden.");
         }
         let (radius, damage, slow, duration) = match skill {
             "phalanx" => (3.9, 75., 0.83, 95),
@@ -1002,7 +1030,7 @@ impl Game {
             }
         }
         self.players[player].casts += 1;
-        self.event("cast", skill, id, target, radius);
+        self.event("cast", skill, id, target, radius).origin = Some(origin);
         self.remove_dead();
         Ok(())
     }
@@ -1342,6 +1370,7 @@ impl Game {
             .collect();
         for shot in impacts {
             let mut damage_shown = 0.;
+            let mut links = Vec::new();
             let boss_bonus = self
                 .pieces
                 .iter()
@@ -1382,6 +1411,8 @@ impl Game {
                     * if is_target { 1. } else { 0.56 };
                 if is_target {
                     damage_shown = damage;
+                } else if shot.attack == "chain" && links.len() < 3 {
+                    links.push(enemy.pos);
                 }
                 enemy.hp -= damage;
                 if shot.attack == "shred" {
@@ -1407,7 +1438,10 @@ impl Game {
                     };
                 }
             }
-            self.event("impact", &shot.attack, shot.enemy, shot.to, damage_shown);
+            let impact = self.event("impact", &shot.attack, shot.enemy, shot.to, damage_shown);
+            impact.origin = Some(shot.from);
+            impact.shot = Some(shot.id);
+            impact.links = links;
         }
     }
 

@@ -5,9 +5,10 @@ import core from '../server/generated/simulation.js';
 
 const catalog = JSON.parse(readFileSync(new URL('../public/assets/catalog.json', import.meta.url),'utf8'));
 const assets = new URL('../public/assets/models/', import.meta.url);
+const mobileAssets = new URL('../public/assets/mobile/', import.meta.url);
 
-function model(id) {
-  const data = readFileSync(new URL(`${id}.glb`,assets));
+function model(id, folder = assets) {
+  const data = readFileSync(new URL(`${id}.glb`,folder));
   assert.equal(data.toString('ascii',0,4),'glTF',id);
   return JSON.parse(data.toString('utf8',20,20+data.readUInt32LE(12)));
 }
@@ -49,6 +50,23 @@ test('the three Blender arenas ship as vertex-lit static meshes', () => {
     assert.ok(Number.isInteger(arena.meshes[0].primitives[0].attributes.COLOR_0),id);
     assert.ok(arena.materials[0].extensions.KHR_materials_unlit,id);
     assert.ok(!arena.animations?.length,id);
+  }
+});
+
+test('mobile models reduce the geometry budget and preserve paint and animation bindings', () => {
+  const variants = readFileSync(new URL('models.txt', mobileAssets), 'utf8').trim().split('\n');
+  for (const { id } of catalog.themes) assert.ok(variants.includes(`arena_${id}`));
+  const mesh = glb => glb.meshes[0].primitives[0];
+  const indices = glb => glb.accessors[mesh(glb).indices].count;
+  const clips = glb => glb.animations?.map(clip => clip.name).sort() ?? [];
+  for (const id of variants) {
+    const desktop = model(id);
+    const mobile = model(id, mobileAssets);
+    assert.ok(indices(mobile) <= indices(desktop) * .75, id);
+    assert.deepEqual(Object.keys(mesh(mobile).attributes).sort(), Object.keys(mesh(desktop).attributes).sort(), id);
+    assert.deepEqual(clips(mobile), clips(desktop), id);
+    assert.equal(mobile.skins?.[0].joints.length, desktop.skins?.[0].joints.length, id);
+    assert.equal(mobile.images?.length, desktop.images?.length, id);
   }
 });
 

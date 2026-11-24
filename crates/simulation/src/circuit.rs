@@ -192,13 +192,54 @@ impl Game {
         tier: u8,
         slot: Option<usize>,
     ) -> Option<usize> {
-        self.pieces.iter().position(|piece| {
-            piece.owner == player
-                && piece.actor == actor
-                && piece.tier == tier
-                && piece.stack < 3
-                && slot.is_none_or(|tile| tile == piece.slot)
-        })
+        self.pieces
+            .iter()
+            .enumerate()
+            .filter(|(_, piece)| {
+                piece.owner == player
+                    && piece.actor == actor
+                    && piece.tier == tier
+                    && piece.stack < 3
+                    && slot.is_none_or(|tile| tile == piece.slot)
+            })
+            .max_by_key(|(_, piece)| (piece.stack, std::cmp::Reverse(piece.id)))
+            .map(|(index, _)| index)
+    }
+
+    fn recruit_destination(
+        &self,
+        player: usize,
+        actor: &str,
+        tier: u8,
+        preferred: Option<usize>,
+    ) -> Option<(usize, Option<usize>)> {
+        if let Some(index) = self.find_stack(player, actor, tier, None) {
+            return Some((self.pieces[index].slot, Some(index)));
+        }
+        let duplicate = self
+            .pieces
+            .iter()
+            .any(|piece| piece.owner == player && piece.actor == actor && piece.tier == tier);
+        preferred
+            .and_then(|slot| self.circuit_free(player, Some(slot)))
+            .or_else(|| {
+                if duplicate {
+                    self.circuit_free(player, None)
+                } else {
+                    None
+                }
+            })
+            .map(|slot| (slot, None))
+    }
+
+    fn receive_recruit(&mut self, player: usize, actor: &Actor, preferred: Option<usize>) -> u32 {
+        if let Some((slot, stack)) =
+            self.recruit_destination(player, &actor.id, actor.rarity, preferred)
+        {
+            self.put_draw(player, &actor.id, actor.rarity, slot, stack)
+        } else {
+            self.reserve_recruit(player, actor)
+        }
     }
 
     pub(crate) fn circuit_draw(
@@ -207,10 +248,10 @@ impl Game {
         target: Option<usize>,
     ) -> Result<(), &'static str> {
         if self.players[player].reserve.len() >= 6 {
-            return Err("Setze zuerst einen Rekruten aus der Reserve.");
+            return Err("Die Reserve ist voll. Platziere zuerst eine Einheit.");
         }
         if target.is_some_and(|slot| !self.valid_slot(player, slot)) {
-            return Err("Der Platz gehört dem Mitspieler.");
+            return Err("Dieses Feld gehört deinem Mitspieler.");
         }
         let roll = self.draw(10_000);
         let favor = usize::from(self.players[player].favor);
@@ -227,15 +268,10 @@ impl Game {
         };
         let definition = self
             .roll_recruit(player, tier)
-            .ok_or("Es sind keine Truppen freigeschaltet.")?;
+            .ok_or("Du hast noch keine Einheit freigeschaltet.")?;
         self.spend(player, self.summon_cost(player))?;
         self.players[player].recruits += 1;
-        let id = self.reserve_recruit(player, definition);
-        // A requested destination is convenient for scripted and keyboard clients. The draw has
-        // already happened and stays in the reserve if that destination does not fit the unit.
-        if let Some(slot) = target {
-            let _ = self.deploy_recruit(player, id, slot);
-        }
+        self.receive_recruit(player, definition, target);
         if self.players[player].recruits == 5 {
             self.players[player].essence += 2;
             self.event("bounty", "", 0, [0., 0.], 2.);
@@ -245,10 +281,10 @@ impl Game {
 
     pub(crate) fn oracle(&mut self, player: usize, tier: u8) -> Result<(), &'static str> {
         if !self.on_circuit() || !(2..=5).contains(&tier) {
-            return Err("Diese Orakelziehung gibt es hier nicht.");
+            return Err("Diese Seltenheit gibt es beim Orakel nicht.");
         }
         if self.players[player].reserve.len() >= 6 {
-            return Err("Setze zuerst einen Rekruten aus der Reserve.");
+            return Err("Die Reserve ist voll. Platziere zuerst eine Einheit.");
         }
         let (cost, chance) = [(2, 72), (3, 49), (4, 32), (6, 18)][usize::from(tier - 2)];
         if self.players[player].essence < cost {
@@ -262,7 +298,7 @@ impl Game {
         let mut id = 0;
         if success {
             let draw = pool[self.draw(pool.len())];
-            id = self.reserve_recruit(player, draw);
+            id = self.receive_recruit(player, draw, None);
         }
         self.players[player].essence -= cost;
         self.event(
@@ -303,20 +339,34 @@ impl Game {
         slot: usize,
     ) -> Result<(), &'static str> {
         if !self.on_circuit() || !self.valid_slot(player, slot) {
-            return Err("Dieser Bauplatz gehört dir nicht.");
+            return Err("Wähle ein Feld in deiner Hälfte.");
         }
         let index = self.players[player]
             .reserve
             .iter()
             .position(|recruit| recruit.id == id)
-            .ok_or("Dieser Rekrut ist nicht mehr in deiner Reserve.")?;
+            .ok_or("Die Einheit ist nicht mehr in der Reserve.")?;
         let recruit = &self.players[player].reserve[index];
         let stack = self.find_stack(player, &recruit.actor, recruit.tier, Some(slot));
         if stack.is_none() && self.circuit_free(player, Some(slot)).is_none() {
-            return Err("Hier passen nur bis zu drei identische Truppen derselben Seltenheit.");
+            return Err("Wähle ein freies Feld oder einen passenden Trupp mit Platz.");
         }
         let recruit = self.players[player].reserve.remove(index);
         self.put_draw(player, &recruit.actor, recruit.tier, slot, stack);
+        // A multi-draw can leave several copies waiting before a type has its first tile.
+        while let Some(index) = self.players[player]
+            .reserve
+            .iter()
+            .position(|unit| unit.actor == recruit.actor && unit.tier == recruit.tier)
+        {
+            let Some((slot, stack)) =
+                self.recruit_destination(player, &recruit.actor, recruit.tier, None)
+            else {
+                break;
+            };
+            self.players[player].reserve.remove(index);
+            self.put_draw(player, &recruit.actor, recruit.tier, slot, stack);
+        }
         Ok(())
     }
 
@@ -325,7 +375,7 @@ impl Game {
             .reserve
             .iter()
             .position(|r| r.id == id)
-            .ok_or("Dieser Rekrut ist nicht mehr in deiner Reserve.")?;
+            .ok_or("Die Einheit ist nicht mehr in der Reserve.")?;
         let recruit = self.players[player].reserve.remove(index);
         self.players[player].gold += 5 + 3 * i32::from(recruit.tier);
         Ok(())
@@ -338,16 +388,18 @@ impl Game {
         tier: u8,
         slot: usize,
         stack: Option<usize>,
-    ) {
+    ) -> u32 {
         if let Some(index) = stack {
             let piece = &mut self.pieces[index];
             piece.stack += 1;
             let (id, stack) = (piece.id, piece.stack);
             self.event("stack", actor, id, self.tiles()[slot], f32::from(stack));
+            id
         } else {
             self.add_piece(player, slot, actor, tier);
             let id = self.pieces.last().unwrap().id;
             self.event("draw", actor, id, self.tiles()[slot], f32::from(tier));
+            id
         }
     }
 
@@ -355,12 +407,12 @@ impl Game {
         let index = self.piece_index(player, id)?;
         let main = &self.pieces[index];
         if main.tier >= 5 || actor(&main.actor).is_none_or(|a| a.kind != "troop") {
-            return Err("Legendäre Truppen haben bereits den höchsten Rang.");
+            return Err("Legendary ist die höchste Seltenheit.");
         }
         let tier = main.tier;
         let slot = main.slot;
         if main.stack != 3 {
-            return Err("Verschmelze drei identische Kämpfer auf demselben Feld.");
+            return Err("Zum Verschmelzen brauchst du drei gleiche Einheiten auf einem Feld.");
         }
         let pool = self.circuit_pool(player, tier + 1);
         if pool.is_empty() {
@@ -402,7 +454,7 @@ impl Game {
             .count()
             >= 3
         {
-            return Err("Pro Aufstellung sind drei Helden möglich.");
+            return Err("Du hast bereits drei Helden auf dem Feld.");
         }
         let mut recipe = BTreeMap::<&str, u8>::new();
         for ingredient in &hero.recipe {
@@ -437,11 +489,11 @@ impl Game {
             }
         }
         if recipe.values().any(|amount| *amount > 0) {
-            return Err("Dir fehlen Truppen für das Heldenrezept.");
+            return Err("Dir fehlen Einheiten für die Beschwörung.");
         }
         let slot = slotted
             .or_else(|| self.circuit_free(player, None))
-            .ok_or("Du brauchst Platz für den Helden.")?;
+            .ok_or("Du brauchst ein freies Feld für den Helden.")?;
         self.spend(player, 65)?;
         for piece in &mut self.pieces {
             if let Some(used) = consumed.get(&piece.id) {
@@ -471,7 +523,7 @@ impl Game {
         }
         let index = usize::from(tier - 1);
         if self.players[player].temper[index] >= 6 {
-            return Err("Dieser Rang ist vollständig geschmiedet.");
+            return Err("Für diese Seltenheit hast du die höchste Schmiedestufe erreicht.");
         }
         self.spend(player, self.forge_cost(player, tier))?;
         self.players[player].temper[index] += 1;
@@ -481,7 +533,7 @@ impl Game {
 
     pub(crate) fn fortune(&mut self, player: usize) -> Result<(), &'static str> {
         if !self.on_circuit() || self.players[player].favor >= 5 {
-            return Err("Die Anrufung ist vollständig ausgebaut.");
+            return Err("Du hast die höchste Glücksstufe erreicht.");
         }
         self.spend(player, 65 + i32::from(self.players[player].favor) * 34)?;
         self.players[player].favor += 1;
@@ -635,6 +687,101 @@ mod tests {
         assert_eq!((evolved.tier, evolved.stack), (2, 1));
         assert_eq!(game.players[0].merges, 1);
         assert!(game.players[0].reserve.iter().any(|r| r.id == extra));
+    }
+
+    #[test]
+    fn paid_copies_fill_the_selected_formation_before_opening_another_tile() {
+        let mut game = opened(vec![1, 1]);
+        game.players[0].gold = 1_000;
+        let seed = game.rng;
+        for _ in 0..2 {
+            game.rng = seed;
+            game.apply(0, Action::Recruit { slot: None }).unwrap();
+        }
+        assert!(game.pieces.is_empty());
+        assert_eq!(game.players[0].reserve.len(), 2);
+        let recruit = game.players[0].reserve[0].clone();
+        game.apply(
+            0,
+            Action::Deploy {
+                id: recruit.id,
+                slot: 18,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            game.pieces
+                .iter()
+                .map(|p| (p.slot, p.stack))
+                .collect::<Vec<_>>(),
+            vec![(18, 2)]
+        );
+        assert!(game.players[0].reserve.is_empty());
+
+        for expected in [3, 1, 2] {
+            game.rng = seed;
+            game.apply(0, Action::Recruit { slot: None }).unwrap();
+            assert_eq!(game.pieces.last().unwrap().stack, expected);
+            assert!(game.players[0].reserve.is_empty());
+        }
+        assert_eq!(
+            game.pieces
+                .iter()
+                .map(|p| (p.slot, p.stack))
+                .collect::<Vec<_>>(),
+            vec![(18, 3), (16, 2)]
+        );
+        assert!(
+            game.pieces
+                .iter()
+                .all(|p| p.actor == recruit.actor && p.owner == 0)
+        );
+        assert_eq!(game.players[0].gold, 850);
+
+        game.rng = seed;
+        game.apply(1, Action::Recruit { slot: None }).unwrap();
+        assert_eq!(game.players[1].reserve[0].actor, recruit.actor);
+        assert_eq!(game.pieces[1].stack, 2);
+    }
+
+    #[test]
+    fn full_own_tiles_keep_overflow_in_reserve_and_moves_respect_occupancy() {
+        let mut game = opened(vec![1, 1]);
+        let hoplite = actor("hoplite").unwrap();
+        let first = game.reserve_recruit(0, hoplite);
+        game.apply(
+            0,
+            Action::Deploy {
+                id: first,
+                slot: 19,
+            },
+        )
+        .unwrap();
+        let lead = game.receive_recruit(0, hoplite, None);
+        assert_eq!(game.pieces[0].stack, 2);
+        assert_eq!(game.receive_recruit(0, hoplite, None), lead);
+        let reserve = (16..32).filter(|slot| *slot != 19);
+        for slot in reserve {
+            game.add_piece(0, slot, "ballista", 1);
+        }
+        let waiting = game.receive_recruit(0, hoplite, None);
+        assert_eq!(game.players[0].reserve[0].id, waiting);
+        assert!(game.apply(0, Action::Move { id: lead, slot: 0 }).is_err());
+        assert!(game.apply(0, Action::Move { id: lead, slot: 18 }).is_err());
+        game.pieces.retain(|piece| piece.slot != 22);
+        game.apply(0, Action::Move { id: lead, slot: 22 }).unwrap();
+        assert!(game.pieces[0].moved_until > game.tick);
+        game.apply(0, Action::Move { id: lead, slot: 19 }).unwrap();
+        assert_eq!(game.pieces[0].slot, 19);
+        game.apply(
+            0,
+            Action::Deploy {
+                id: waiting,
+                slot: 22,
+            },
+        )
+        .unwrap();
+        assert_eq!(game.pieces.last().unwrap().slot, 22);
     }
 
     #[test]

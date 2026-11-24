@@ -8,7 +8,8 @@
     "dev": "node scripts/dev.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:e2e": "playwright test",
-    "art": "blender -b -t 4 --python-exit-code 1 --python art/arenas.py && blender -b -t 4 --python-exit-code 1 --python art/cast.py && blender -b -t 4 --python-exit-code 1 --python art/fortifications.py"
+    "art": "blender -b -t 4 --python-exit-code 1 --python art/arenas.py && blender -b -t 4 --python-exit-code 1 --python art/cast.py && blender -b -t 4 --python-exit-code 1 --python art/fortifications.py && npm run art:mobile",
+    "art:mobile": "node art/mobile.mjs"
   },
   "engines": {
     "node": ">=22"
@@ -21,8 +22,11 @@
     "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@gltf-transform/core": "4.3.0",
+    "@gltf-transform/extensions": "4.3.0",
     "@playwright/test": "^1.56.1",
     "https-proxy-agent": "^9.1.0",
+    "meshoptimizer": "1.3.0",
     "vite": "^7.1.12"
   }
 }
