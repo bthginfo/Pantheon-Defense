@@ -82,6 +82,7 @@ test('a phone can draw, place and fight fullscreen in the Bevy arena', async ({b
     await expect(page.getByRole('button',{name:'Umstellen',exact:true})).toHaveCount(0);
     await expect(page.locator('#wave')).toHaveText(/^[1-9]\d* \/ 16$/,{timeout:25_000});
     await expect(page.locator('#kills')).not.toHaveText('0 besiegt',{timeout:25_000});
+    await expect(page.locator('#wave-reward')).toContainText('Trainingsmarke',{timeout:24_000});
     await page.screenshot({path:testInfo.outputPath('arena.png')});
     await page.locator('[data-order=forfeit]').tap();
     await page.locator('#leave-dialog').getByRole('button',{name:'Aufgeben',exact:true}).tap();
@@ -90,6 +91,7 @@ test('a phone can draw, place and fight fullscreen in the Bevy arena', async ({b
     await expect(page.getByRole('heading',{name:'Deine Chronik'})).toBeVisible();
     await expect(page.locator('.history')).toContainText('Die Hetzjagd');
     await expect(page.locator('.history')).toContainText(/\+\d+ EP/);
+    await expect(page.locator('.history')).toContainText('Trainingsmarke');
     expect(failures.filter(error => !error.includes('control flow'))).toEqual([]);
   } finally {
     await context.close();

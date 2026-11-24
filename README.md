@@ -1,14 +1,14 @@
 # Pantheon Defense
 
 Ein 3D-Tower-Defense in Rust und Bevy für Solo und privaten Zweier-Koop.
-Verteidige einen gemeinsamen Rundkurs und meistere acht Herausforderungen mit
-16 bis 48 Wellen. Drei Fraktionen aus Griechenland, Rom und Japan bringen
-36 Truppen, 24 Helden und neun Gebäude aufs Brett.
+Verteidige einen gemeinsamen Rundkurs in fünf Schwierigkeitsstufen. Der Feldzug
+hat 30 Wellen. Acht Spielvarianten reichen von 16 bis 48 Wellen. Griechenland,
+Rom und Japan bringen 36 Truppen, 24 Helden und neun Gebäude aufs Brett.
 
 ## Spielen
 
-1. Erstelle ein Konto mit einem eindeutigen Rufnamen. Wähle eine Karte und
-   Herausforderung. Bei **Zu zweit** gibst du den Rufnamen des registrierten
+1. Erstelle ein Konto mit einem eindeutigen Rufnamen. Wähle Karte, Schwierigkeit
+   und Herausforderung. Bei **Zu zweit** gibst du den Rufnamen des registrierten
    Mitspielers ein. Kopiere den Einladungslink im Spielraum und teile ihn mit
    der eingeladenen Person.
 2. Der Gastgeber startet. **Truppe ziehen** legt einen Rekruten in die Reserve.
@@ -23,8 +23,34 @@ Verteidige einen gemeinsamen Rundkurs und meistere acht Herausforderungen mit
 5. Wellen wechseln nach Zeit. Gegner bleiben auf dem Rundkurs, bis sie besiegt
    sind. Der gemeinsame Gegnerzähler und die Bossfristen entscheiden über den
    Ausgang. Gold, Essenz, Orakel und Schmiede helfen dir beim Ausbau.
-6. Erfahrung und Siegel öffnen neue Karten, Herausforderungen und Figuren.
-   In der Sammlung trainierst du freigeschaltete Figuren bis Meisterschaft 3.
+6. Nach jeder überstandenen Welle bekommst du Gold und Wellenbeute. Essenz fällt
+   in bestimmten Wellen an. In der Sammlung steigern Trainingsmarken Truppen,
+   Baupläne Gebäude und Heldensplitter Helden bis Meisterschaft 3. Siegel lassen
+   sich für alle drei Arten einsetzen.
+
+## Feldzug und Beute
+
+| Schwierigkeit | Voraussetzung für jedes beteiligte Profil |
+| --- | --- |
+| Normal | Ab dem ersten Spiel verfügbar |
+| Schwer | 2 Feldzugssiege auf Normal und 3 Meisterschaftsränge insgesamt |
+| Hölle | 2 Feldzugssiege auf Schwer und 7 Meisterschaftsränge insgesamt |
+| Göttlich | 2 Feldzugssiege auf Hölle und 12 Meisterschaftsränge insgesamt |
+| Primal | 2 Feldzugssiege auf Göttlich und 18 Meisterschaftsränge insgesamt |
+
+Auch verlorene Partien geben Erfahrung für die erreichte Welle. Im Feldzug auf
+Normal sind es 20 EP je erreichter Welle. Schwierigkeit und Herausforderung
+erhöhen die Ausbeute. Gutgeschriebene Wellenbeute bleibt nach einer Niederlage.
+
+Ab Schwer bringen überstandene Meilensteinwellen Runenstaub. Mit ihm schmiedest
+du in der Sammlung Feldzeichen für Startgold, Startessenz oder zusätzlichen
+Schaden gegen Bosse. Ab Hölle lassen sich Feldzeichen mit Urkernen erwecken.
+Das ausgerüstete Feldzeichen wirkt ab dem nächsten Spielraum.
+
+Das Aussehen und die Zusammensetzung der Formationen entwickeln sich in
+Fünf-Wellen-Abschnitten. Jede Karte hat auf jeder Schwierigkeitsstufe einen eigenen
+Endboss. Höhere Stufen erhöhen den Druck durch schnellere Gegner, höhere
+Lebenspunkte und kürzere Bossfristen.
 
 Die Partie nutzt das Handy im Hochformat. Im Browser öffnet das Symbol neben dem
 Verbindungsstatus den Vollbildmodus. Auf dem iPhone wähle in Safari **Teilen ›
@@ -65,8 +91,8 @@ Spielstände. Derselbe Zustand lässt sich nach einer unterbrochenen Verbindung 
 
 ## Grafik und Blender-Quellen
 
-Die [Grafikreview](art/references/review-v6.md) stellt die Karten und Figuren von V6
-den Entwürfen und V5 gegenüber. Die editierbaren Blender-Szenen liegen in
+Die Renderings des vollständigen Kaders, der Regionalgegner und der Schlachtfelder
+liegen in der [Blender-Abnahme](art/reviews/feldzug/README.md). Die editierbaren Blender-Szenen liegen in
 [`art/blend`](art/blend). Jede Arena wird mit berechneten Licht- und
 Kontaktschatten in ein Mesh exportiert. Truppen, Helden, Gegner und Gebäude
 verwenden Armaturen. Studiolichter und Kameras gehören zu den Blender-Szenen

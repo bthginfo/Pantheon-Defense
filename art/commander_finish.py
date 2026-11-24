@@ -1,4 +1,5 @@
 """Hand-painted colour and tangent-space relief on the same game-ready UV atlas."""
+from functools import lru_cache
 from math import cos, radians, sin, sqrt, tau
 from random import Random
 
@@ -86,9 +87,9 @@ def detail_image():
     return image
 
 
-def painted_image():
+@lru_cache(maxsize=2)
+def painted_pixels(side):
     """Lay down discrete brush marks with dry edges and bristle ridges."""
-    side=256
     width,height=side*ATLAS_COLUMNS,side*ATLAS_ROWS
     atlas=np.ones((height,width,4),dtype=np.float32)
     v,u=np.mgrid[0:side,0:side]/(side-1)
@@ -114,29 +115,35 @@ def painted_image():
             pigment+=(colour-pigment)*opacity[:,:,None]
         x,y=side*(tile%ATLAS_COLUMNS),side*(tile//ATLAS_COLUMNS)
         atlas[y:y+side,x:x+side,:3]=pigment
-    image=bpy.data.images.new('Scumble, bristle marks and worn pigment',width=width,height=height,alpha=False)
-    image.pixels.foreach_set(atlas.ravel())
+    return atlas.ravel()
+
+
+def painted_image(side):
+    image=bpy.data.images.new('Scumble, bristle marks and worn pigment',
+                              width=side*ATLAS_COLUMNS,height=side*ATLAS_ROWS,alpha=False)
+    image.pixels.foreach_set(painted_pixels(side))
     image.pack()
     return image
 
 
-def apply_detail(mat,uv):
+def apply_detail(mat,uv,*,relief=True,side=256):
     nodes,links=mat.node_tree.nodes,mat.node_tree.links
     coords=nodes.new('ShaderNodeUVMap')
     coords.uv_map=uv.name
-    texture=nodes.new('ShaderNodeTexImage')
-    texture.image=detail_image()
-    texture.extension='EXTEND'
-    normal=nodes.new('ShaderNodeNormalMap')
-    normal.uv_map=uv.name
-    normal.inputs['Strength'].default_value=.46
-    links.new(coords.outputs['UV'],texture.inputs['Vector'])
-    links.new(texture.outputs['Color'],normal.inputs['Color'])
     shader=nodes['Principled BSDF']
-    links.new(normal.outputs['Normal'],shader.inputs['Normal'])
+    if relief:
+        texture=nodes.new('ShaderNodeTexImage')
+        texture.image=detail_image()
+        texture.extension='EXTEND'
+        normal=nodes.new('ShaderNodeNormalMap')
+        normal.uv_map=uv.name
+        normal.inputs['Strength'].default_value=.46
+        links.new(coords.outputs['UV'],texture.inputs['Vector'])
+        links.new(texture.outputs['Color'],normal.inputs['Color'])
+        links.new(normal.outputs['Normal'],shader.inputs['Normal'])
 
     painted=nodes.new('ShaderNodeTexImage')
-    painted.image=painted_image()
+    painted.image=painted_image(side)
     painted.extension='EXTEND'
     links.new(coords.outputs['UV'],painted.inputs['Vector'])
     multiply=nodes.new('ShaderNodeMix')

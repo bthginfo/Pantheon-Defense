@@ -9,25 +9,46 @@ def face_panel(name, polygon, z, pigment, parent):
     return mesh_object(name, [(x,y,z) for x,y in polygon],[tuple(range(len(polygon)))],pigment,parent)
 
 
-def terrace_tile(parent, x, y, pigment, highlights, rng):
-    """Chipped, chased limestone with a small amount of in-surface colour variation."""
+def terrace_tile(parent, x, y, pigment, highlights, rng,theme):
+    """Carve the edges and lay a quiet directional stone pattern into each cell."""
     width, depth = 2.807, 1.589
     a,b,c,d=(value+rng.uniform(-.009,.018) for value in (.056,.077,.051,.041))
     w,h=width/2,depth/2
     edge=[(-w+a,-h),(w-b,-h),(w,-h+b),(w,h-c),(w-c,h),(-w+d,h),(-w,h-d),(-w,-h+a)]
     rings=[[(x+vx*amount,y+vy*amount,z) for vx,vy in edge]
            for z,amount in ((.252,.976),(.346,1.0),(.386,.977))]
-    mesh=volume("Fitted stone with hand-dressed chamfer",rings,pigment,parent)
-    # Two faint marbling veins catch the light and leave the unit's head in a clear area.
-    angle=rng.uniform(-.13,.13)
-    for index in range(2):
-        start=-1.04+index*.44+rng.uniform(-.14,.17)
-        end=start+.48+rng.uniform(.02,.51)
-        depth=rng.uniform(-.46,.47)
-        k=.035+rng.random()*.014
-        polygon=[(x+start,y+depth),(x+(start+end)*.5,y+depth+angle),
-            (x+end,y+depth+angle+.06),(x+(start+end)*.45,y+depth+angle+k)]
-        face_panel("Quiet mineral vein",polygon,.389,highlights[index%len(highlights)],parent)
+    vertices=[p for ring in rings for p in ring]
+    vertices.append((x+rng.uniform(-.57,.57),y+rng.uniform(-.30,.30),.382))
+    count=len(edge)
+    faces=[tuple(range(count-1,-1,-1))]
+    for tier in (0,1):
+        for i in range(count):
+            a=tier*count+i
+            b=tier*count+(i+1)%count
+            faces.append((a,b,b+count,a+count))
+    for i in range(count):
+        faces.append((2*count+i,2*count+(i+1)%count,3*count))
+    mesh=mesh_object("Fitted stone with bevelled edges and hand-painted planes",vertices,faces,pigment,parent)
+    for paint in highlights:
+        mesh.data.materials.append(paint)
+    for face in mesh.data.polygons:
+        if count < face.index <= 2*count:
+            face.material_index=1
+        if face.index>2*count and face.index%5==0:
+            face.material_index=2
+    for index in range(3):
+        start=-1.10+index*.42+rng.uniform(-.13,.17)
+        end=start+.44+rng.uniform(.10,.52)
+        depth=rng.uniform(-.53,.52)
+        splay=rng.uniform(-.14,.14)
+        if theme=="rome":
+            splay*=.58
+        elif theme=="japan":
+            splay=-.18+.066*index
+        reach=.031+rng.random()*.019
+        polygon=[(x+start,y+depth),(x+(start+end)*.49,y+depth+splay),
+            (x+end,y+depth+splay+.031),(x+(start+end)*.60,y+depth+splay+reach)]
+        face_panel("Dry-brushed stone vein",polygon,.389+index*.0002,highlights[index%len(highlights)],parent)
     return mesh
 
 
@@ -141,7 +162,7 @@ def greek_temple(root,x,y,direction,m,small=False):
     house=empty("Temple of the coastal oath",(x,y,.257),root)
     if direction<0:
         house.rotation_euler.z=pi
-    scale=.79 if small else 1.13
+    scale=.86 if small else 1.19
     house.scale=(scale,)*3
     for i,w in enumerate((2.82,2.68,2.49)):
         block("Three stone podium steps",(0,-.11,.083*i+.028),(w,1.21-.10*i,.105),
@@ -159,6 +180,12 @@ def greek_temple(root,x,y,direction,m,small=False):
            (-1.295,.56,1.609),(1.295,.56,1.609),(0,.54,2.078)]
     mesh_object("Solid triangular gable",gable,
                 [(0,1,2),(3,5,4),(0,2,5,3),(1,4,5,2),(0,3,4,1)],m["top"],house)
+    for side in (-1,1):
+        span("Jade glaze inlaid along the pediment slope",(side*1.192,-.581,1.633),(0.,-.581,2.057),
+             .032,m["mosaic"][0],house,6,.027)
+    crest=torus_mesh("Hammered solar disk set into the temple gable",(0,-.584,1.764),.114,.020,
+                      m["mosaic"][4],house,12,5)
+    crest.rotation_euler.x=pi/2
     for side in (-1,1):
         for j in range(8):
             frac=(j+.45)/8

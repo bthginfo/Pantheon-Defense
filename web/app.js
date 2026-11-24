@@ -2,21 +2,24 @@ import '@fontsource-variable/cormorant-garamond';
 import '@fontsource-variable/dm-sans';
 import './style.css';
 import './circuit.css';
-import { $, esc, portrait, numeral, number, price, pieceLabel, groupNames, themeHeroes, colorThemes, actorCard, historyRow } from './presentation.js';
+import { $, esc, portrait, numeral, number, price, pieceLabel, groupNames, themeHeroes, colorThemes, actorCard, historyRow, signCard, spoilsText } from './presentation.js';
 import { battleSound, isMuted, score, toggleSound } from './audio.js';
 import { circuitOrders, drawPrice, isCircuit, ownerOf, pressureLimit, rarities } from './circuit-ui.js';
 import { bindScreen, enterFullscreen, handheld, leaveFullscreen } from './screen.js';
+import { difficultyProgress, materials } from '../shared/progression.js';
 
 const catalog = await fetch('/assets/catalog.json').then(answer => answer.json());
 const actors = new Map(catalog.actors.map(actor => [actor.id, actor]));
 const themes = new Map(catalog.themes.map(theme => [theme.id, theme]));
 const challenges = new Map(catalog.challenges.map(challenge => [challenge.id, challenge]));
+const difficulties = new Map(catalog.difficulties.map(stage => [stage.id, stage]));
 const enemies = new Map(catalog.enemies.map(enemy => [enemy.id, enemy]));
 let user = null;
 let currentVersion = '1.0.0';
 let theme = 'aegean';
 let factionFilter = 'aegean';
 let challenge = 'campaign';
+let difficulty = 'normal';
 let mode = 'solo';
 let tab = 'bastion';
 let authMode = 'login';
@@ -43,6 +46,7 @@ let slotSignature = '';
 let legendSignature = '';
 let lastPhase = '';
 let drawNoticeTimer;
+let waveRewardTimer;
 let dragStart;
 let blockClickUntil=0;
 let slowSamples=0;
@@ -149,21 +153,47 @@ function paintPreparation() {
       ${esc(item.name)}${item.unlock > level ? ` · Stufe ${item.unlock}` : ''}</option>`).join('');
   $('challenge').value = challenge;
   $('challenge-detail').textContent = challenges.get(challenge).detail;
+  if (!difficultyProgress(difficulties.get(difficulty), catalog.difficulties, user).unlocked) difficulty = 'normal';
+  paintDifficulties();
   $('friend-row').hidden = mode !== 'duo';
   if (document.activeElement !== $('friend')) $('friend').value = friendDraft;
   $('create-match').textContent = mode === 'duo' ? 'Koop-Raum öffnen ›' : 'Solo-Partie öffnen ›';
 }
 
+function paintDifficulties(preview = difficulty) {
+  const list = $('difficulty-list');
+  if (!list.childElementCount) {
+    list.innerHTML = catalog.difficulties.map(stage => `<button type="button" data-difficulty="${stage.id}"
+      aria-describedby="difficulty-detail">${esc(stage.name)}</button>`).join('');
+  }
+  for (const button of list.children) {
+    const stage = difficulties.get(button.dataset.difficulty);
+    button.setAttribute('aria-disabled', String(!difficultyProgress(stage, catalog.difficulties, user).unlocked));
+    button.setAttribute('aria-pressed', String(stage.id === difficulty));
+  }
+  const stage = difficulties.get(preview);
+  const { unlocked, prior, wins, ranks } = difficultyProgress(stage, catalog.difficulties, user);
+  $('difficulty-detail').textContent = unlocked
+    ? `${stage.detail}${stage.rank ? ' Zusätzliche Beute in Meilensteinwellen.' : ''}`
+    : `Feldzug auf ${prior.name} · ${Math.min(wins, stage.clears)}/${stage.clears} Siege. Meisterschaft · ${Math.min(ranks, stage.mastery)}/${stage.mastery} Ränge.`;
+}
+
 function paintCollection() {
   const level = user?.level ?? 1;
   $('collection-level').textContent = user
-    ? `Profilstufe ${level} · ${number(user.xp)} EP · ${number(user.seals ?? 0)} Siegel`
+    ? `Profilstufe ${level} · ${number(user.xp)} EP`
     : 'Spiele Partien, um neue Figuren freizuschalten.';
+  const balances = $('material-balances');
+  balances.hidden = !user;
+  if (user) balances.innerHTML = Object.entries(materials).map(([key, label]) =>
+    `<div><dt>${label}</dt><dd>${number(key === 'seals' ? user.seals : user.materials?.[key] ?? 0)}</dd></div>`).join('');
+  $('field-signs').hidden = !user;
+  if (user) $('field-sign-list').innerHTML = catalog.fieldSigns.map(sign => signCard(sign, user)).join('');
   $('collection-filters').innerHTML = catalog.themes.map(item => `<button data-faction="${item.id}"
     aria-pressed="${item.id === factionFilter}">${esc(item.name)}</button>`).join('');
   const items = catalog.actors.filter(actor => actor.theme === factionFilter);
   $('actor-cards').innerHTML = Object.entries(groupNames).map(([kind,label]) => `<section>
-    <h2>${label}</h2><div class="card-grid">${items.filter(a => a.kind === kind).map(a => actorCard(a,level,user?.masteries?.[a.id]??0,user?.seals??0,Boolean(user))).join('')}</div>
+    <h2>${label}</h2><div class="card-grid">${items.filter(a => a.kind === kind).map(a => actorCard(a,level,user?.masteries?.[a.id]??0,user)).join('')}</div>
     </section>`).join('');
 }
 
@@ -191,7 +221,7 @@ async function recentRooms() {
     const result = await request('rooms');
     $('recent-block').hidden = !result.rooms.length;
     $('recent').innerHTML = result.rooms.map(item => `<button data-resume="${item.id}" class="resume">
-      <span><strong>${esc(themes.get(item.theme)?.map)}</strong><small>${item.mode === 'duo' ? 'Koop' : 'Solo'} · ${esc(challenges.get(item.challenge)?.name)}</small></span>
+      <span><strong>${esc(themes.get(item.theme)?.map)}</strong><small>${item.mode === 'duo' ? 'Koop' : 'Solo'} · ${esc(difficulties.get(item.difficulty)?.name)} · ${esc(challenges.get(item.challenge)?.name)}</small></span>
       <span>${item.phase === 'lobby' ? 'Lobby' : item.phase === 'won' ? 'Sieg' : item.phase === 'lost' ? 'Abgeschlossen' : `Welle ${item.wave}`} ›</span></button>`).join('');
   } catch (error) { if (error.status !== 401) toast(error.message, true); }
 }
@@ -326,6 +356,9 @@ function openMatch(packet) {
   orderSignature = '';
   slotSignature = '';
   legendSignature = '';
+  clearTimeout(waveRewardTimer);
+  $('wave-reward').hidden = true;
+  delete $('wave-reward').dataset.wave;
   delete $('stage').dataset.rendered;
   if (loadedBoard!==boardAsset(packet.game)) {
     delete $('stage').dataset.models;
@@ -430,15 +463,29 @@ function displayCountdown(game) {
   return game.phase === 'won' ? 'Tor gehalten' : 'Partie beendet';
 }
 
+function showWaveReward(reward) {
+  if (!reward) return;
+  const notice = $('wave-reward');
+  if (Number(notice.dataset.wave) === reward.wave) return;
+  notice.dataset.wave = reward.wave;
+  const essence = reward.essence ? ` · +${reward.essence} Essenz` : '';
+  const loot = spoilsText({ [reward.material]: reward.amount, runedust: reward.runedust, cores: reward.cores });
+  notice.innerHTML = `<strong>Welle ${reward.wave}</strong><span>+${reward.gold} Gold${essence} · ${loot}</span>`;
+  notice.hidden = false;
+  clearTimeout(waveRewardTimer);
+  waveRewardTimer = setTimeout(() => { notice.hidden = true; }, 6500);
+}
+
 function paintMatch() {
   if (!room) return;
   const {game, viewer, host, guest} = room;
   const character = themes.get(game.theme);
+  const stage = difficulties.get(game.difficulty ?? 'normal');
   const player = game.players[viewer];
   $('match-map').textContent = character.map;
-  $('match-type').textContent = `${guest ? 'Koop' : 'Solo'} · ${challenges.get(game.challenge)?.name}`;
+  $('match-type').textContent = `${guest ? 'Koop' : 'Solo'} · ${stage.name} · ${challenges.get(game.challenge)?.name}`;
   const circuit=isCircuit(game);
-  const limit=circuit?pressureLimit(game):game.max_life;
+  const limit=circuit?pressureLimit(game,game.difficulty ? stage : null):game.max_life;
   const filled=circuit?game.enemies.length:game.life;
   $('life-label').textContent=circuit?'Gegner':'Torleben';
   $('life').textContent=`${filled} / ${limit}`;
@@ -460,10 +507,11 @@ function paintMatch() {
     $('stage-legend').innerHTML = `<span><i></i>${esc(host.name)}${viewer === 0 ? ' · Du' : ''}</span>
       ${guest ? `<span><i></i>${esc(guest.name)}${viewer === 1 ? ' · Du' : ''}</span>` : ''}`;
   }
-  const boss = game.enemies.find(enemy => enemy.kind === 'titan' || enemy.kind === 'golem');
+  const boss = game.enemies.find(enemy => ['titan','golem'].includes(enemies.get(enemy.kind)?.archetype ?? enemy.kind));
   $('boss-health').hidden = !boss;
   if (boss) $('boss-health').innerHTML = `<strong>${esc(enemies.get(boss.kind)?.name)}${game.boss_cast ? ' · Schockwelle' : boss.deadline ? ` · ${Math.max(0,Math.ceil((boss.deadline-game.tick)/20))} s` : ''}</strong>
     <meter min="0" max="${Math.ceil(boss.max_hp)}" value="${Math.max(0,boss.hp)}" aria-label="Boss-Lebenspunkte"></meter>`;
+  showWaveReward(game.treasury?.latest);
   paintSlots();
   stageCaption();
   paintOrders();
@@ -560,10 +608,11 @@ function paintOrders() {
   const {game, viewer, guest, host, joined} = room;
   const player = game.players[viewer];
   const result = user?.records?.find(record => record.id === room.id);
+  const loot = spoilsText(game.treasury?.spoils);
   const drawCost = game.challenge === 'levy' ? 50 : 65;
   const circuit=isCircuit(game);
   const boardReady=$('stage').dataset.rendered==='true' && (!circuit || loadedBoard===boardAsset(game));
-  const signature = JSON.stringify([boardReady,result?.xp,result?.seals,game.phase,game.wave,player.gold,player.essence,
+  const signature = JSON.stringify([boardReady,result?.xp,result?.seals,loot,game.phase,game.wave,player.gold,player.essence,
     player.temper,player.favor,player.recruits,player.reserve,game.prepared,joined,selected,pending,menuPane,room.invite,
     game.pieces.map(p=>[p.id,p.slot,p.rank,p.tier,p.stack,Math.max(0,Math.ceil((p.cast_ready-game.tick)/20))]),locked,isMuted()]);
   if(signature===orderSignature)return;
@@ -576,6 +625,7 @@ function paintOrders() {
   orders.classList.toggle('circuit-orders',circuit);
   orders.classList.toggle('live-deck',circuit && !['lobby','won','lost'].includes(game.phase));
   if (game.phase === 'lobby') {
+    const sign = catalog.fieldSigns.find(sign => sign.id === player.field_sign?.id);
     orders.innerHTML = `<div class="orders-heading"><p class="kicker">${guest ? 'Koop-Raum' : 'Solo-Partie'}</p><h2>Aufstellung</h2></div>
       <div class="lobby-members"><div><i></i><span>${esc(host.name)}</span><small>Gastgeber</small></div>
       ${guest ? `<div><i></i><span>${esc(guest.name)}</span><small>${joined ? 'Bereit' : 'Eingeladen'}</small></div>` : ''}</div>
@@ -585,13 +635,15 @@ function paintOrders() {
         '<button class="minibutton" data-order="renew">Neuen Einladungslink erzeugen</button>'}` : ''}
       ${viewer === 0 ? `<button class="primary" data-order="start" ${!joined || locked || !boardReady ? 'disabled' : ''}>Partie starten ▸</button>` :
         '<p class="hint">Der Gastgeber startet eure Partie.</p>'}
+      ${sign ? `<p class="hint guide-note">${esc(sign.name)} · Rang ${player.field_sign.rank}</p>` : ''}
       <p class="hint guide-note">${circuit ? 'Zieh Truppen, wähle ihr Feld und verschmelze Dreierstapel. Gegner kreisen weiter, während neue Wellen beginnen.' :
         `Ziehen kostet ${drawCost} Gold. Auf dem Feld kannst du drei gleiche Truppen verschmelzen.`}</p>`;
   } else if (['won','lost'].includes(game.phase)) {
     orders.innerHTML = `<div class="orders-heading"><p class="kicker">Schlachtbericht</p><h2>${game.phase === 'won' ? 'Die Bastion hält' : 'Die Bastion ist gefallen'}</h2></div>
       <dl class="end-stats"><div><dt>Wellen</dt><dd>${game.wave} / ${game.wave_limit}</dd></div><div><dt>Besiegte Gegner</dt><dd>${game.kills}</dd></div>
       <div><dt>Verschmolzen</dt><dd>${player.merges}</dd></div><div><dt>Fähigkeiten</dt><dd>${player.casts}</dd></div>
-      ${result ? `<div><dt>Belohnung</dt><dd>+${result.xp} EP ${result.seals ? `· +${result.seals} Siegel` : ''}</dd></div>` : ''}</dl>
+      ${loot ? `<div><dt>Wellenbeute</dt><dd>${loot}</dd></div>` : ''}
+      ${result ? `<div><dt>Erfahrung für Welle ${result.wave}</dt><dd>+${result.xp} EP ${result.seals ? `· +${result.seals} Siegel` : ''}</dd></div>` : ''}</dl>
       <button class="primary" data-order="home">Zur Bastion ›</button><button class="quiet" data-order="history">Chronik öffnen</button>`;
   } else if(circuit) {
     orders.innerHTML=circuitOrders({room,selected,pending,menuPane,actors,catalog,
@@ -848,7 +900,7 @@ $('create-match').addEventListener('click', async () => {
   const button = $('create-match');
   if (button.disabled) return;
   button.disabled = true;
-  try { openMatch(await request('new',{mode,theme,challenge,friend:friendDraft})); }
+  try { openMatch(await request('new',{mode,theme,challenge,difficulty,friend:friendDraft})); }
   catch (error) { toast(error.message,true); }
   finally { button.disabled = false; }
 });
@@ -859,6 +911,10 @@ document.addEventListener('click', async event => {
   const target = button.dataset;
   if (target.tab) chooseTab(target.tab);
   if (target.mode) { mode = target.mode; paintPreparation(); }
+  if (target.difficulty) {
+    if (button.getAttribute('aria-disabled') !== 'true') difficulty = target.difficulty;
+    paintDifficulties(target.difficulty);
+  }
   if (target.theme) {
     if (button.getAttribute('aria-disabled') === 'true') {
       toast(`Dieser Schauplatz öffnet sich auf Profilstufe ${themes.get(target.theme).unlock}.`);
@@ -871,6 +927,17 @@ document.addEventListener('click', async event => {
       const {user:updated} = await request('mastery',{actor:target.mastery,expected:user?.masteries?.[target.mastery]??0});
       changeAccount(updated);
       toast(`${actors.get(target.mastery).name} ist jetzt auf Meisterschaft ${updated.masteries[target.mastery]}.`);
+    } catch (error) {
+      button.disabled = false;
+      toast(error.message,true);
+    }
+  }
+  if (target.sign) {
+    button.disabled = true;
+    const id = target.signAction === 'equip' && user?.fieldSign === target.sign ? null : target.sign;
+    try {
+      const {user:updated} = await request('field-sign', { id, action:target.signAction, expected:user?.fieldSigns?.[target.sign] ?? 0 });
+      changeAccount(updated);
     } catch (error) {
       button.disabled = false;
       toast(error.message,true);

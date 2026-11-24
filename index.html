@@ -60,6 +60,11 @@
         <div class="setup-grid">
           <div id="theme-list" class="theme-list" aria-label="Schauplätze"></div>
           <section class="war-table" aria-labelledby="challenge-label">
+            <div class="difficulty-picker">
+              <p id="difficulty-label">Schwierigkeit</p>
+              <div id="difficulty-list" aria-labelledby="difficulty-label" role="group"></div>
+              <p class="hint" id="difficulty-detail" aria-live="polite"></p>
+            </div>
             <label id="challenge-label" for="challenge">Herausforderung</label>
             <select id="challenge"></select>
             <p class="hint" id="challenge-detail"></p>
@@ -85,6 +90,12 @@
         <p id="collection-level"></p>
         <div class="segment" id="collection-filters" aria-label="Fraktion"></div>
       </div>
+      <dl id="material-balances" class="material-balances" aria-label="Material für Meisterschaften" hidden></dl>
+      <section id="field-signs" class="field-signs" aria-labelledby="field-signs-title" hidden>
+        <h2 id="field-signs-title">Feldzeichen</h2>
+        <p class="hint">Verdiene Runenstaub ab Schwer und Urkerne ab Hölle. Nimm ein Feldzeichen pro Partie mit.</p>
+        <div id="field-sign-list"></div>
+      </section>
       <div class="cards" id="actor-cards"></div>
     </section>
 
@@ -113,8 +124,11 @@
           <div><span>Welle</span><strong id="wave"></strong><small id="wave-phase"></small></div>
           <div class="gold-stat"><span>Gold</span><strong id="gold"></strong><small id="kills"></small></div>
           <div class="essence-stat" id="essence-stat" hidden><span>Essenz</span><strong id="essence"></strong><small aria-hidden="true">✦</small></div>
+          <aside class="battle-notices">
+            <p class="wave-reward" id="wave-reward" role="status" hidden></p>
+            <div class="boss-health" id="boss-health" hidden></div>
+          </aside>
         </div>
-        <div class="boss-health" id="boss-health" hidden></div>
         <div class="scene-note" id="scene-note" hidden></div>
         <div class="draw-reveal" id="draw-reveal" role="status" aria-live="polite" hidden></div>
         <div class="stage-legend" id="stage-legend"></div>

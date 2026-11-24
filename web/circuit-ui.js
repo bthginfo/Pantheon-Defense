@@ -4,7 +4,7 @@ export const rarities = ['', 'Common', 'Uncommon', 'Rare', 'Epic', 'Legendary'];
 export const isCircuit = game => (game?.rule_version ?? 1) >= 2;
 export const ownerOf = (game, slot) => isCircuit(game) ? 1 - Math.floor(slot / 16) : Math.floor(slot / 12);
 export const drawPrice = (game, player) => Math.min(118,(game.challenge === 'levy' ? 21 : 26) + player.recruits * 2);
-export const pressureLimit = game => ({scarcity:34,eclipse:43}[game.challenge] ?? 45) + (game.players.length === 2 ? 19 : 0);
+export const pressureLimit = (game, difficulty) => ({scarcity:34,eclipse:43}[game.challenge] ?? 45) + (game.players.length === 2 ? 19 : 0) + (difficulty?.pressure ?? 0);
 
 const disabled = off => off ? 'disabled' : '';
 const rarityClass = tier => `rarity-${tier}`;

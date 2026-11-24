@@ -4,6 +4,7 @@ from random import Random
 
 from forge import empty, material, span
 from figures import cut, curve, emblem, fabric_panel, limb, pin
+from commander_forms import relief, strips
 from geometry import bevel_block as block, mesh_object, shell, silhouette, torus_mesh
 
 TINTS = {
@@ -18,13 +19,32 @@ TINTS = {
     "titan": ("4b454e","726779","b58a61","f9b07d","785065"),
 }
 
+REGIONS = {
+    "aegean": ("233f43","4e7870","ab8350","397169","wave"),
+    "rome": ("3e292e","6e4d48","b77e50","803f43","wing"),
+    "japan": ("30404a","687773","9f8c5d","59657e","moon"),
+}
+
 
 def palette(item):
-    ink,rock,metal,flare,trim=TINTS[item["id"]]
-    return {k:material(k,v, r) for k,v,r in [
-        ("ink",ink,0),("rock",rock,0),("old gold",metal,.19),("ember",flare,0),("accent",trim,0),
-        ("hem",ink,0),("fabric",rock,0),("fillet",metal,.2),("gold",flare,0),("claw","bca58e",0)
-    ]}
+    family=item.get("archetype",item["id"])
+    ink,rock,metal,flare,trim=TINTS[family]
+    region=item.get("theme")
+    if region:
+        ink,rock,metal,trim,_=REGIONS[region]
+        flare=item["color"].lstrip("#")
+    paints={}
+    for name,color,metallic,pigment in [
+        ("ink",ink,0,"hide dark"),("rock",rock,.05,"linen shadow"),
+        ("old gold",metal,.44,"bronze"),("ember",flare,0,""),("accent",trim,.03,"paint blue" if region!="rome" else "paint red"),
+        ("hem",ink,0,"teal lining"),("fabric",rock,0,"teal"),("fillet",metal,.31,"brass"),
+        ("gold",flare,0,""),("claw","c4aa82",0,"linen"),("edge","bda78d",.21,"iron edge"),
+    ]:
+        shade=material(name,color,metallic)
+        if pigment:
+            shade["Brush pigment"]=pigment
+        paints[name]=shade
+    return paints
 
 
 def spikes(parent,points,m,rng):
@@ -158,13 +178,62 @@ def wisp(item,m):
     return root,"wisp","staff"
 
 
+def boss_weapon(grip,item,m):
+    crest=item.get("crest",5)
+    region=item.get("theme")
+    if crest==5:
+        block("Cut stone hammer head",(.012,0,.58),(.511,.302,.311),m["rock"],grip,.080)
+        for side in (-1,1):
+            block("Riveted heavy weapon collar",(side*.214,0,.582),(.165,.313,.264),m["old gold"],grip,.063)
+        emblem("bolt",grip,.012,-.160,.583,.68,m)
+    elif crest==6:
+        if region=="aegean":
+            for side in (-1,0,1):
+                curve("Tines of the reef king's trident",grip,[(0,0,.43),(side*.182,0,.602),
+                      (side*.208,-.022,.876+(.115 if side==0 else 0))],
+                      [.042,.067,.004],m["old gold"],7)
+        elif region=="rome":
+            silhouette("Overlong Roman bronze blade",[(-.10,.44),(-.107,.65),(-.113,1.02),(0,1.20),
+                  (.113,1.02),(.107,.65),(.10,.44)],.097,m["edge"],grip)
+            block("Chipped transverse bronze guard",(0,0,.484),(.311,.15,.083),m["old gold"],grip,.019)
+            span("Hot channel along the blade",(0,-.055,.554),(0,-.055,1.067),.024,m["ember"],grip,6,.018)
+        else:
+            shell("Layered obsidian kanabō",[(.43,.083,.081,0,0),(.60,.118,.114,0,0),
+                  (.91,.133,.124,0,0),(.985,.070,.068,0,0)],m["rock"],grip,9)
+            for h in (.57,.69,.81,.91):
+                for i in range(6):
+                    a=tau*i/6+h
+                    pin("Forged studs on the kanabō",(.112*cos(a),.115*sin(a),h),.046,m["old gold"],grip)
+    elif crest==7:
+        cut("Faceted core cradled in a metal frame",grip,(0,-.014,.737),(.123,.091,.199),m["ember"],2)
+        for side in (-1,1):
+            curve("Broken core cage worn at its edges",grip,[(0,0,.468),(side*.218,0,.656),
+                  (side*.216,.039,.830),(side*.079,.067,1.012)],[.061,.074,.056,.011],m["old gold"],7)
+    elif crest==8:
+        points=[(-.075,.584),(.241,.539),(.386,.610),(.455,.796),(.414,.932),
+                (.286,.855),(.091,.819),(-.075,.798)]
+        silhouette("Wide chipped blade of the god's poleaxe",points,.125,m["rock"],grip)
+        curve("Burnished poleaxe edge",grip,[(x,-.069,z) for x,z in points[2:6]],
+              [.036,.053,.05,.02],m["old gold"],8)
+        emblem("sun",grip,.194,-.073,.703,.51,m)
+    else:
+        shards=[(-.164,.615,.110,.30),(.001,.744,.135,.48),(.171,.785,.119,.29)]
+        for x,z,width,length in shards:
+            crystal=cut("Cleaved shard of the primal weapon",grip,(x,-.007,z),
+                        (width,.086,length*.52),m["rock"],1)
+            crystal.rotation_euler.y=x*3.8
+            curve("Light leaking from the fracture",grip,[(x*.91,-.092,z-.034),
+                  (x+.038,-.091,z+.147),(x*1.17,-.054,z+.186)],
+                  [.016,.021,.006],m["ember"],6)
+
+
 def humanoid_foe(item,m):
-    ident=item["id"]
+    ident=item.get("archetype",item["id"])
     boss=ident in ("golem","titan")
     heavy=boss or ident in ("brute","warden")
     herald=ident=="herald"
     width=1.31 if boss else 1.20 if heavy else .88 if herald else .95
-    rng=Random(ident)
+    rng=Random(item["id"])
     root=empty("Figure")
     root.scale=({"golem":1.25,"titan":1.46,"brute":1.03,"warden":.97}.get(ident,.89),)*3
     body=empty("Body",(0,.015,.81),root)
@@ -235,10 +304,7 @@ def humanoid_foe(item,m):
                 torus_mesh("Bell of the Rift",(.045,-.026,.861),.165,.039,m["old gold"],grip,14,6,True)
                 cut("Flickering fire within the herald relic",grip,(.046,-.033,.871),(.111,.115,.135),m["ember"],1)
             else:
-                block("Precision-cut giant stone hammer",(.012,0,.58),(.511,.302,.311),m["rock"],grip,.080)
-                for s in (-1,1):
-                    block("Riveted heavy weapon collar",(s*.214,0,.582),(.165,.313,.264),m["old gold"],grip,.063)
-                emblem("bolt",grip,.012,-.160,.583,.68,m)
+                boss_weapon(grip,item,m)
     cut("Angled obsidian skull",head,(0,.013,.188),(.220*width,.169,.195),m["ink"],2)
     cut("Engraved faceted faceplate",head,(0,-.112,.197),(.155*width,.099,.155),m["rock"],2)
     for side in (-1,1):
@@ -262,5 +328,120 @@ def humanoid_foe(item,m):
 
 def enemy_model(item):
     m=palette(item)
-    builder={"moth":moth,"hound":hound,"wisp":wisp}.get(item["id"],humanoid_foe)
-    return builder(item,m)
+    family=item.get("archetype",item["id"])
+    builder={"moth":moth,"hound":hound,"wisp":wisp}.get(family,humanoid_foe)
+    root,shape,weapon=builder(item,m)
+    if region:=item.get("theme"):
+        regional_features(root,region,family,item["crest"],m)
+    return root,shape,weapon
+
+
+def regional_features(root,region,family,crest,m):
+    """Give the force on each board a distinctive material, armour and crown silhouette."""
+    parts={obj.name:obj for obj in root.children_recursive if obj.type=="EMPTY"}
+    body,head=parts["Body"],parts["Head"]
+    motif=REGIONS[region][-1]
+    if family=="wisp":
+        for sign in (-1,1):
+            x=sign*.157
+            cage=torus_mesh("Hewn metal frame balanced around the ghost", (x,.028,.012),
+                            .211,.018,m["edge"],parts["Mantle"],10,5,True)
+            cage.rotation_euler.z=sign*.31
+            leaf=cut("Coloured shard suspended in the open frame",head,(x,-.081,-.106),
+                     (.048,.051,.130),m["ember"],1)
+            leaf.rotation_euler.y=.51*sign
+        return
+    if family=="moth":
+        for i in range(4):
+            x=(i-1.5)*.061
+            cut("Overlapping edge of the cedar moth thorax",body,(x,-.146,.106-abs(x)*.31),
+                 (.064,.048,.135),m["edge"] if i%2 else m["old gold"],1)
+        emblem("moon",body,0.,-.195,.096,.34,m)
+        return
+    if family=="hound":
+        for tier in range(4):
+            y=-.353+tier*.177
+            width=.245-.028*tier
+            def saddle(u,t):
+                x=(2*u-1)*width
+                return x,y+.101*t,.359-.035*tier-.137*(2*u-1)**2-.033*t
+            strips("Armoured jade or iron scale at the shoulder",body,[0,.14,.41,.65,.86,1.],
+                   [0,.17,.78,1.],saddle,[m["accent"],m["edge"]],lambda u,t:int(t>.81),
+                   lining=.018,smooth=False)
+        for side in (-1,1):
+            curve("Swept brow spike protecting the eye",head,[(side*.151,-.316,.074),
+                  (side*.217,-.226,.113),(side*.275,-.105,.197),(side*.301,-.022,.191)],
+                  [.036,.054,.041,.006],m["old gold"],7)
+        return
+
+    champion=crest>=5
+    scale=1.20 if champion else .90
+    for side in (-1,1):
+        def mask(x,z,depth):
+            return side*x*scale,-.251+.46*x-depth,z
+        cheek=[(.077,.253),(.163,.295),(.198,.221),(.163,.118),(.098,.070),(.080,.135)]
+        relief("Forged regional mask jaw with a painted bevel",head,cheek,mask,m["accent"],m["edge"],.023,.156)
+        if region=="japan":
+            curve("Pale oni tusk curving beside its mask",head,[(side*.083,-.271,.105),
+                  (side*.145,-.288,.084),(side*.180,-.258,.143),(side*.195,-.229,.195)],
+                  [.035,.040,.027,.004],m["claw"],7)
+        elif region=="aegean":
+            curve("Raised sea-beaten ridge curving off the brow",head,[(side*.091,-.229,.276),
+                  (side*.179,-.167,.342),(side*.241,-.082,.410),(side*.071,.014,.492)],
+                  [.028,.042,.038,.006],m["old gold"],7)
+        else:
+            cut("Recessed brow cast as a charred iron plate",head,(side*.102,-.215,.284),
+                 (.131,.063,.049),m["old gold"],1)
+        collar=[(.061,.269),(.143,.367),(.238,.341),(.291,.253),(.255,.175),(.154,.140)]
+        relief("Embossed regional plate across the chest",body,collar,
+               lambda x,z,d:(side*x*scale,-.274+.535*x-d,z),
+               m["rock"] if crest%2 else m["accent"],m["old gold"],.028,.095)
+    cut("Bright fracture at the heart of the breastplate",body,(0.,-.268,.241),
+         (.079,.036,.114),m["ember"],1)
+    emblem(motif,body,0.,-.305,.257,.45 if champion else .32,m)
+    if crest>=8:
+        if crest==8:
+            for slot in range(-2,3):
+                x=slot*.142
+                slab=block("Carved floating crown tablet",(x,.081,.581-.037*abs(slot)),
+                           (.120,.110,.328-.039*abs(slot)),m["old gold"],head,.032)
+                slab.rotation_euler.y=slot*.20
+                emblem(motif,head,x,.015,.631-.06*abs(slot),.14,m)
+            for side in (-1,1):
+                curve("Swept metal fins around the commander mask",head,
+                      [(side*.160,-.031,.152),(side*.302,.017,.239),
+                       (side*.382,.161,.364),(side*.303,.283,.514)],
+                      [.079,.087,.055,.008],m["accent"],7)
+        else:
+            root.scale.x*=1.12
+            root.scale.z*=1.08
+            cut("Open primal core in the broken crown",head,(0.,.046,.585),
+                 (.152,.115,.248),m["ember"],2)
+            for side in (-1,1):
+                curve("Long broken obsidian horn",head,
+                      [(side*.147,-.014,.327),(side*.278,.023,.422),
+                       (side*.425,.11,.560),(side*.396,.185,.719),(side*.302,.22,.762)],
+                      [.115,.103,.078,.046,.008],m["accent"],8)
+                for tier in range(4):
+                    x=side*(.202+.097*tier)
+                    shard=cut("Floating shards with luminous fractures",body,
+                              (x,.310+.032*tier,.165+.116*tier),
+                              (.11,.080,.230-.016*tier),m["rock"],1)
+                    shard.rotation_euler.y=side*.27*tier
+                    gems(body,(x,.215+.032*tier,.211+.116*tier),m,.03)
+    elif champion:
+        for tier in range(3):
+            h=.376+.12*tier
+            width=.247-.038*tier
+            for side in (-1,1):
+                curve("Craggy filigree rising into a sovereign crown",head,
+                      [(side*.08,.039,h-.060),(side*width,.028,h+.018),
+                       (side*(width+.078),.114,h+.123+(.054 if crest==7 else 0))],
+                      [.083-.011*tier,.064-.009*tier,.006],m["accent"] if tier%2 else m["old gold"],6)
+        if crest==7:
+            core=cut("Cut ore suspended at the centre of the crown",head,(0.,-.055,.636),
+                     (.106,.093,.214),m["ember"],1)
+            core.rotation_euler.z=.36
+            ring=torus_mesh("Broad faceted halo around the sovereign crown",(0,.095,.499),
+                            .345,.034,m["old gold"],head,12,5,True)
+            ring.rotation_euler.y=.18

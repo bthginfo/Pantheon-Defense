@@ -1,4 +1,6 @@
+mod campaign;
 mod circuit;
+pub use campaign::{Difficulty, EquippedFieldSign, FieldSign, Treasury, difficulty};
 pub use circuit::{CIRCUIT_RULES, circuit_route, route_point, squad_damage, tiles_for};
 
 use serde::{Deserialize, Serialize};
@@ -18,6 +20,10 @@ pub struct Catalog {
     pub actors: Vec<Actor>,
     pub enemies: Vec<EnemyKind>,
     pub challenges: Vec<Challenge>,
+    #[serde(default)]
+    pub difficulties: Vec<Difficulty>,
+    #[serde(default, rename = "fieldSigns")]
+    pub field_signs: Vec<FieldSign>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -28,6 +34,10 @@ pub struct Theme {
     pub caption: String,
     pub accent: String,
     pub unlock: u8,
+    #[serde(default)]
+    pub wave_pack: Vec<String>,
+    #[serde(default)]
+    pub boss_pack: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -82,6 +92,18 @@ pub struct EnemyKind {
     pub armor: f32,
     pub leak: i32,
     pub color: String,
+    #[serde(default)]
+    pub archetype: Option<String>,
+}
+
+impl EnemyKind {
+    pub fn family(&self) -> &str {
+        self.archetype.as_deref().unwrap_or(&self.id)
+    }
+
+    pub fn is_boss(&self) -> bool {
+        matches!(self.family(), "titan" | "golem")
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -208,9 +230,13 @@ pub struct Setup {
     pub rule_version: u8,
     pub theme: String,
     pub challenge: String,
+    #[serde(default)]
+    pub difficulty: Option<String>,
     pub levels: Vec<u8>,
     #[serde(default)]
     pub masteries: Vec<BTreeMap<String, u8>>,
+    #[serde(default)]
+    pub field_signs: Vec<Option<EquippedFieldSign>>,
     pub seed: u32,
 }
 
@@ -220,6 +246,10 @@ pub struct Game {
     pub rule_version: u8,
     pub theme: String,
     pub challenge: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub difficulty: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub treasury: Option<Treasury>,
     pub wave_limit: u8,
     pub wave: u8,
     pub phase: Phase,
@@ -272,6 +302,17 @@ pub struct Player {
     pub reserve: Vec<Recruit>,
     #[serde(default)]
     pub mastery: BTreeMap<String, u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field_sign: Option<EquippedFieldSign>,
+}
+
+impl Player {
+    fn boss_damage_bonus(&self) -> f32 {
+        self.field_sign
+            .as_ref()
+            .and_then(EquippedFieldSign::bonus)
+            .map_or(0., |(sign, rank)| sign.boss_damage[rank])
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -403,6 +444,11 @@ impl Game {
             1
         };
         let circuit = rule_version == CIRCUIT_RULES;
+        let difficulty = setup
+            .difficulty
+            .as_deref()
+            .map(|id| difficulty(id).ok_or("Diese Schwierigkeitsstufe gibt es nicht."))
+            .transpose()?;
         let (initial_gold, max_life) = if circuit {
             (
                 match setup.challenge.as_str() {
@@ -425,6 +471,8 @@ impl Game {
             rule_version,
             theme: theme.id.clone(),
             challenge: challenge.id.clone(),
+            difficulty: difficulty.map(|stage| stage.id.clone()),
+            treasury: (circuit && difficulty.is_some()).then(Treasury::default),
             wave_limit: if circuit {
                 challenge.arena_waves.unwrap_or(challenge.waves)
             } else {
@@ -441,18 +489,29 @@ impl Game {
                 .levels
                 .into_iter()
                 .enumerate()
-                .map(|(index, level)| Player {
-                    level: level.max(1),
-                    gold: initial_gold,
-                    recruits: 0,
-                    merges: 0,
-                    casts: 0,
-                    essence: if circuit { 1 } else { 0 },
-                    favor: 0,
-                    temper: [0; 5],
-                    summoned: 0,
-                    reserve: Vec::new(),
-                    mastery: setup.masteries.get(index).cloned().unwrap_or_default(),
+                .map(|(index, level)| {
+                    let field_sign = setup
+                        .field_signs
+                        .get(index)
+                        .and_then(Option::as_ref)
+                        .filter(|sign| circuit && sign.bonus().is_some());
+                    let (gold, essence) = field_sign
+                        .and_then(EquippedFieldSign::bonus)
+                        .map_or((0, 0), |(sign, rank)| (sign.gold[rank], sign.essence[rank]));
+                    Player {
+                        level: level.max(1),
+                        gold: initial_gold + gold,
+                        recruits: 0,
+                        merges: 0,
+                        casts: 0,
+                        essence: i32::from(circuit) + essence,
+                        favor: 0,
+                        temper: [0; 5],
+                        summoned: 0,
+                        reserve: Vec::new(),
+                        mastery: setup.masteries.get(index).cloned().unwrap_or_default(),
+                        field_sign: field_sign.cloned(),
+                    }
                 })
                 .collect(),
             pieces: Vec::new(),
@@ -906,9 +965,15 @@ impl Game {
         self.pieces[index].cast_ready =
             self.tick + base - u64::from(self.pieces[index].rank - 1) * 30;
         let tick = self.tick;
+        let boss_bonus = self.players[player].boss_damage_bonus();
         for enemy in &mut self.enemies {
             if distance(enemy.pos, target) <= radius {
-                enemy.hp -= damage * rank_bonus;
+                let bonus = if enemy_kind(&enemy.kind).is_boss() {
+                    1. + boss_bonus
+                } else {
+                    1.
+                };
+                enemy.hp -= damage * rank_bonus * bonus;
                 if slow > 0. {
                     enemy.slow = slow;
                     enemy.slow_until = tick + duration;
@@ -1010,8 +1075,12 @@ impl Game {
 
     fn wave_size(&self) -> u16 {
         if self.on_circuit() {
+            let rank = self
+                .difficulty_config()
+                .map_or(0, |stage| u16::from(stage.rank));
             return (7 + u16::from(self.wave / 2) + if self.players.len() == 2 { 4 } else { 0 })
-                .min(18);
+                .min(18)
+                + rank / 2;
         }
         let base = 7 + u16::from(self.wave) * 2;
         (if self.players.len() == 2 {
@@ -1061,6 +1130,7 @@ impl Game {
         } else {
             "reaver"
         };
+        let kind = self.regional_formation(kind, boss);
         let lane = if !self.on_circuit() && self.players.len() == 1 && self.wave <= 2 {
             0
         } else {
@@ -1075,7 +1145,19 @@ impl Game {
         } else {
             0.79
         };
-        let hp = def.hp * growth * team_scale * if self.challenge == "siege" { 1.18 } else { 1. };
+        let stage = self.difficulty_config();
+        let stage_hp = stage.map_or(1., |s| s.hp * if boss { s.boss_hp } else { 1. });
+        let final_boss = boss && self.wave == self.wave_limit;
+        let base_hp = match stage.filter(|_| boss) {
+            Some(stage) if final_boss => 1010. + f32::from(stage.rank) * 33. + def.hp / 25.,
+            Some(_) => 542. + f32::from(self.wave) * 7. + (def.hp - 610.) * 0.06,
+            None => def.hp,
+        };
+        let hp = base_hp
+            * growth
+            * team_scale
+            * stage_hp
+            * if self.challenge == "siege" { 1.18 } else { 1. };
         let id = self.id();
         self.enemies.push(Enemy {
             id,
@@ -1090,7 +1172,17 @@ impl Game {
             haste_until: 0,
             challenged: false,
             deadline: if boss && self.on_circuit() {
-                self.tick + 580
+                self.tick
+                    + stage.map_or(580, |s| {
+                        let time = if final_boss {
+                            715
+                        } else if self.wave <= 6 {
+                            690
+                        } else {
+                            635
+                        };
+                        time - u64::from(s.rank) * 16
+                    })
             } else {
                 0
             },
@@ -1108,10 +1200,11 @@ impl Game {
         let theme = &self.theme;
         let lengths = [path_len(theme, 0), path_len(theme, 1)];
         let rush = if self.challenge == "rush" { 1.27 } else { 1. };
+        let difficulty_speed = self.enemy_speed_multiplier();
         let heralds: Vec<_> = self
             .enemies
             .iter()
-            .filter(|e| e.kind == "herald")
+            .filter(|e| enemy_kind(&e.kind).family() == "herald")
             .map(|e| e.pos)
             .collect();
         let mut leaks = Vec::new();
@@ -1121,15 +1214,15 @@ impl Game {
                 e.haste_until = tick + 15;
             }
             let haste = if e.haste_until > tick { 1.18 } else { 1. };
-            let rage = if (e.kind == "titan" && e.hp < e.max_hp * 0.43)
-                || (e.kind == "moth" && e.progress > 12.)
+            let rage = if (def.family() == "titan" && e.hp < e.max_hp * 0.43)
+                || (def.family() == "moth" && e.progress > 12.)
             {
                 1.33
             } else {
                 1.
             };
             let slow = if e.slow_until > tick { 1. - e.slow } else { 1. };
-            e.progress += def.speed * rush * haste * rage * slow * DT;
+            e.progress += def.speed * rush * difficulty_speed * haste * rage * slow * DT;
             e.pos = route_point(rules, theme, e.lane, e.progress);
             if rules < CIRCUIT_RULES && e.progress >= lengths[e.lane] {
                 leaks.push((e.id, def.leak));
@@ -1244,11 +1337,16 @@ impl Game {
         let wardens: Vec<_> = self
             .enemies
             .iter()
-            .filter(|enemy| enemy.kind == "warden")
+            .filter(|enemy| enemy_kind(&enemy.kind).family() == "warden")
             .map(|enemy| (enemy.id, enemy.pos))
             .collect();
         for shot in impacts {
             let mut damage_shown = 0.;
+            let boss_bonus = self
+                .pieces
+                .iter()
+                .find(|piece| piece.id == shot.source)
+                .map_or(0., |piece| self.players[piece.owner].boss_damage_bonus());
             for enemy in &mut self.enemies {
                 let is_target = enemy.id == shot.enemy;
                 if !is_target
@@ -1266,9 +1364,8 @@ impl Game {
                 } else {
                     0.
                 };
-                let armor = (enemy_kind(&enemy.kind).armor + if guarded { 0.19 } else { 0. }
-                    - exposed)
-                    .max(0.);
+                let definition = enemy_kind(&enemy.kind);
+                let armor = (definition.armor + if guarded { 0.19 } else { 0. } - exposed).max(0.);
                 let pierce = if matches!(shot.attack.as_str(), "pierce" | "sun" | "bleed" | "shred")
                 {
                     0.14
@@ -1277,6 +1374,11 @@ impl Game {
                 };
                 let damage = shot.damage
                     * (1. - (armor - pierce).max(0.))
+                    * if definition.is_boss() {
+                        1. + boss_bonus
+                    } else {
+                        1.
+                    }
                     * if is_target { 1. } else { 0.56 };
                 if is_target {
                     damage_shown = damage;
@@ -1331,9 +1433,12 @@ impl Game {
             }
             return;
         }
+        let bonus_radius = self
+            .difficulty_config()
+            .map_or(0., |stage| f32::from(stage.rank) * 0.12);
         let Some(boss) = self.enemies.iter_mut().find(|enemy| {
             !enemy.challenged
-                && matches!(enemy.kind.as_str(), "golem" | "titan")
+                && enemy_kind(&enemy.kind).is_boss()
                 && enemy.progress > 6.
                 && (enemy.progress > 10. || enemy.hp < enemy.max_hp * 0.72)
         }) else {
@@ -1355,7 +1460,12 @@ impl Game {
             actor: boss.kind.clone(),
             until: self.tick + 32,
             pos,
-            radius: if boss.kind == "titan" { 3.05 } else { 2.55 },
+            radius: bonus_radius
+                + if enemy_kind(&boss.kind).family() == "titan" {
+                    3.05
+                } else {
+                    2.55
+                },
         };
         self.event(
             "boss_windup",
@@ -1386,13 +1496,10 @@ impl Game {
             } else {
                 12
             };
-            let reward = if kind == "titan" || kind == "golem" {
-                55
-            } else {
-                shared
-            };
+            let boss = enemy_kind(&kind).is_boss();
+            let reward = if boss { 55 } else { shared };
             for player in &mut self.players {
-                if on_circuit && (kind == "golem" || kind == "titan") {
+                if on_circuit && boss {
                     player.essence += 3;
                 }
                 player.gold += if self.challenge == "scarcity" {
@@ -1456,8 +1563,10 @@ mod tests {
             rule_version: 1,
             theme: "aegean".into(),
             challenge: "campaign".into(),
+            difficulty: None,
             levels: vec![3, 3],
             masteries: Vec::new(),
+            field_signs: Vec::new(),
             seed: 773,
         })
         .unwrap()
@@ -1534,11 +1643,13 @@ mod tests {
             rule_version: 1,
             theme: "aegean".into(),
             challenge: "levy".into(),
+            difficulty: None,
             levels: vec![1],
             masteries: vec![BTreeMap::from([
                 ("slinger".into(), 2),
                 ("hoplite".into(), 1),
             ])],
+            field_signs: Vec::new(),
             seed: 613,
         })
         .unwrap();

@@ -91,7 +91,6 @@ pub fn play_arena(mobile: bool) {
             )
                 .chain(),
         );
-    circuit_art::install_terrain_cache(&mut app);
     app.run();
 }
 
@@ -310,7 +309,6 @@ fn setup(
         Transform::from_xyz(3.3, 26.7, 27.5).looking_at(Vec3::new(0.0, -0.12, 0.1), Vec3::Y),
         Tonemapping::ReinhardLuminance,
         Msaa::Off,
-        circuit_art::live_layers(),
     ));
     commands.spawn((
         DirectionalLight {
@@ -538,7 +536,9 @@ fn pull_game(
             0.36,
         );
         let yaw = facing(ahead - position);
-        let mut speed = sim::enemy_kind(&enemy.kind).speed;
+        let definition = sim::enemy_kind(&enemy.kind);
+        let family = definition.family();
+        let mut speed = definition.speed * game.enemy_speed_multiplier();
         if game.challenge == "rush" {
             speed *= 1.27;
         }
@@ -548,8 +548,8 @@ fn pull_game(
         if enemy.haste_until > game.tick {
             speed *= 1.18;
         }
-        if (enemy.kind == "titan" && enemy.hp < enemy.max_hp * 0.43)
-            || (enemy.kind == "moth" && enemy.progress > 12.)
+        if (family == "titan" && enemy.hp < enemy.max_hp * 0.43)
+            || (family == "moth" && enemy.progress > 12.)
         {
             speed *= 1.33;
         }
@@ -582,7 +582,7 @@ fn pull_game(
                 true,
             );
             if game.on_circuit() {
-                let size = if enemy.kind == "hound" {
+                let size = if family == "hound" {
                     Vec2::new(0.44, 0.56)
                 } else {
                     Vec2::new(0.46, 0.31)

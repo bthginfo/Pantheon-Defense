@@ -499,11 +499,12 @@ impl Game {
     }
 
     pub fn pressure_limit(&self) -> usize {
-        (match self.challenge.as_str() {
+        let base = (match self.challenge.as_str() {
             "scarcity" => 34,
             "eclipse" => 43,
             _ => 45,
-        }) + if self.players.len() == 2 { 19 } else { 0 }
+        }) + if self.players.len() == 2 { 19 } else { 0 };
+        (base + self.difficulty_config().map_or(0, |stage| stage.pressure)) as usize
     }
 
     pub(crate) fn finish_circuit_tick(&mut self) {
@@ -518,22 +519,18 @@ impl Game {
             return;
         }
         if self.wave < self.wave_limit && self.wave_tick >= self.wave_duration() {
-            let wave = self.wave;
-            for player in &mut self.players {
-                let interest = (player.gold / 18).min(22);
-                player.gold += 17 + i32::from(wave / 3) + interest;
-                if wave % 3 == 0 {
-                    player.essence += 1;
-                }
-            }
+            self.reward_wave(false);
             self.begin_wave();
         } else if self.wave == self.wave_limit {
             if self.spawned >= self.wave_size() && self.enemies.is_empty() {
+                self.reward_wave(true);
                 self.phase = Phase::Won;
                 self.shots.clear();
                 self.boss_cast = None;
                 self.event("victory", "", 0, [0., 0.], 0.);
-            } else if self.wave_tick > self.wave_duration() + 580 {
+            } else if self.wave_tick
+                > self.wave_duration() + if self.difficulty.is_some() { 715 } else { 580 }
+            {
                 self.phase = Phase::Lost;
                 self.life = 0;
             }
@@ -550,8 +547,10 @@ mod tests {
             rule_version: CIRCUIT_RULES,
             theme: "aegean".into(),
             challenge: "campaign".into(),
+            difficulty: None,
             levels,
             masteries: Vec::new(),
+            field_signs: Vec::new(),
             seed: 17655,
         })
         .unwrap();
@@ -645,8 +644,10 @@ mod tests {
                 rule_version: CIRCUIT_RULES,
                 theme: theme.id.clone(),
                 challenge: "campaign".into(),
+                difficulty: None,
                 levels: vec![theme.unlock],
                 masteries: Vec::new(),
+                field_signs: Vec::new(),
                 seed: 42,
             })
             .unwrap();

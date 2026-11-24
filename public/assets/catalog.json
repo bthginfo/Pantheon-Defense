@@ -1,8 +1,8 @@
 {
   "themes": [
-    {"id":"aegean","name":"Griechenland","map":"Tor der Ägäis","caption":"Eine Hafenbastion aus Kalkstein mit Olivenhainen und umlaufendem Wehrgang.","accent":"#efb76a","unlock":1},
-    {"id":"rome","name":"Rom","map":"Die Rote Zitadelle","caption":"Eine römische Grenzfeste mit Ziegelterrassen und Zypressen.","accent":"#f3816b","unlock":2},
-    {"id":"japan","name":"Japan","map":"Der Nebelpass","caption":"Ein ummauerter Schrein zwischen Zedern und blühenden Kirschbäumen.","accent":"#9fdbba","unlock":3}
+    {"id":"aegean","name":"Griechenland","map":"Tor der Ägäis","caption":"Eine Hafenbastion aus Kalkstein mit Olivenhainen und umlaufendem Wehrgang.","accent":"#efb76a","unlock":1,"wave_pack":["salt_guard","reef_hound","coral_ward","siren","flood_herald"],"boss_pack":["talos","deep_king","first_tide","breaker","trench_warden"]},
+    {"id":"rome","name":"Rom","map":"Die Rote Zitadelle","caption":"Eine römische Grenzfeste mit Ziegelterrassen und Zypressen.","accent":"#f3816b","unlock":2,"wave_pack":["ash_scout","cinder_hound","iron_wall","ash_oracle","cinder_standard"],"boss_pack":["furnace_guard","ash_consul","first_flame","iron_imperator","furnace_heart"]},
+    {"id":"japan","name":"Japan","map":"Der Nebelpass","caption":"Ein ummauerter Schrein zwischen Zedern und blühenden Kirschbäumen.","accent":"#9fdbba","unlock":3,"wave_pack":["reed_oni","paper_moth","cedar_yokai","lantern_ghost","mirror_yokai"],"boss_pack":["gate_oni","mist_daijin","first_mist","veil_shogun","winter_mask"]}
   ],
   "actors": [
     {"id":"hoplite","theme":"aegean","kind":"troop","name":"Hoplitenwache","role":"Kontrolle","note":"Hält die Spitze einer Welle mit kurzen Schildstößen auf.","attack":"guard","cost":65,"unlock":1,"damage":16,"range":2.9,"period":19,"effect":0.28,"color":"#db9d4c","model":{"shape":"bulwark","weapon":"spear"},"rarity":1},
@@ -84,7 +84,37 @@
     {"id":"warden","name":"Spiegelschild","hp":194,"speed":1.31,"armor":0.29,"leak":2,"color":"#8bd0cd"},
     {"id":"moth","name":"Nachtflügler","hp":68,"speed":2.64,"armor":0.08,"leak":1,"color":"#bba2ed"},
     {"id":"golem","name":"Schlackenkoloss","hp":610,"speed":1.1,"armor":0.25,"leak":5,"color":"#ed985e"},
-    {"id":"titan","name":"Kronentitan","hp":1180,"speed":1.04,"armor":0.28,"leak":8,"color":"#e1879e"}
+    {"id":"titan","name":"Kronentitan","hp":1180,"speed":1.04,"armor":0.28,"leak":8,"color":"#e1879e"},
+    {"id":"salt_guard","name":"Salzwache","hp":55,"speed":1.63,"armor":0,"leak":1,"color":"#63af96","theme":"aegean","archetype":"reaver","crest":0},
+    {"id":"reef_hound","name":"Riffjäger","hp":40,"speed":2.8,"armor":0,"leak":1,"color":"#3fbaa9","theme":"aegean","archetype":"hound","crest":1},
+    {"id":"coral_ward","name":"Korallenpanzer","hp":145,"speed":1.27,"armor":0.34,"leak":2,"color":"#cf8877","theme":"aegean","archetype":"brute","crest":2},
+    {"id":"siren","name":"Sirenenlicht","hp":76,"speed":2.13,"armor":0.12,"leak":1,"color":"#8cb0ec","theme":"aegean","archetype":"wisp","crest":3},
+    {"id":"flood_herald","name":"Bote der Flut","hp":126,"speed":1.64,"armor":0.08,"leak":2,"color":"#bd9ecc","theme":"aegean","archetype":"herald","crest":4},
+    {"id":"talos","name":"Talos, Wächter der Brandung","hp":610,"speed":1.1,"armor":0.25,"leak":5,"color":"#c3975d","theme":"aegean","archetype":"golem","crest":5},
+    {"id":"deep_king","name":"König der Tiefe","hp":1180,"speed":1.04,"armor":0.28,"leak":8,"color":"#71aa9a","theme":"aegean","archetype":"titan","crest":6},
+    {"id":"first_tide","name":"Ursprung der Gezeiten","hp":1416,"speed":1.04,"armor":0.28,"leak":8,"color":"#88dacc","theme":"aegean","archetype":"titan","crest":7},
+    {"id":"ash_scout","name":"Aschenlegionär","hp":55,"speed":1.63,"armor":0,"leak":1,"color":"#b47661","theme":"rome","archetype":"reaver","crest":0},
+    {"id":"cinder_hound","name":"Gluthund","hp":40,"speed":2.8,"armor":0,"leak":1,"color":"#d38054","theme":"rome","archetype":"hound","crest":1},
+    {"id":"iron_wall","name":"Eisenprätorianer","hp":194,"speed":1.31,"armor":0.29,"leak":2,"color":"#beb0aa","theme":"rome","archetype":"warden","crest":2},
+    {"id":"ash_oracle","name":"Kohlengeist","hp":76,"speed":2.13,"armor":0.12,"leak":1,"color":"#e8a579","theme":"rome","archetype":"wisp","crest":3},
+    {"id":"cinder_standard","name":"Aschenstandarte","hp":126,"speed":1.64,"armor":0.08,"leak":2,"color":"#af6b78","theme":"rome","archetype":"herald","crest":4},
+    {"id":"furnace_guard","name":"Wächter der Roten Esse","hp":610,"speed":1.1,"armor":0.25,"leak":5,"color":"#e69159","theme":"rome","archetype":"golem","crest":5},
+    {"id":"ash_consul","name":"Konsul der Asche","hp":1180,"speed":1.04,"armor":0.28,"leak":8,"color":"#cc7670","theme":"rome","archetype":"titan","crest":6},
+    {"id":"first_flame","name":"Ursprung der Glut","hp":1416,"speed":1.04,"armor":0.28,"leak":8,"color":"#e9b281","theme":"rome","archetype":"titan","crest":7},
+    {"id":"reed_oni","name":"Schilf-Oni","hp":55,"speed":1.63,"armor":0,"leak":1,"color":"#8ca192","theme":"japan","archetype":"reaver","crest":0},
+    {"id":"paper_moth","name":"Papierflügler","hp":68,"speed":2.64,"armor":0.08,"leak":1,"color":"#d5aac1","theme":"japan","archetype":"moth","crest":1},
+    {"id":"cedar_yokai","name":"Zedernpanzer","hp":145,"speed":1.27,"armor":0.34,"leak":2,"color":"#9aaa68","theme":"japan","archetype":"brute","crest":2},
+    {"id":"lantern_ghost","name":"Laternengeist","hp":76,"speed":2.13,"armor":0.12,"leak":1,"color":"#8fbdca","theme":"japan","archetype":"wisp","crest":3},
+    {"id":"mirror_yokai","name":"Spiegel-Yōkai","hp":194,"speed":1.31,"armor":0.29,"leak":2,"color":"#c3aad4","theme":"japan","archetype":"warden","crest":4},
+    {"id":"gate_oni","name":"Tor-Oni des Nebelpasses","hp":610,"speed":1.1,"armor":0.25,"leak":5,"color":"#dd8a78","theme":"japan","archetype":"golem","crest":5},
+    {"id":"mist_daijin","name":"Herr des Morgennebels","hp":1180,"speed":1.04,"armor":0.28,"leak":8,"color":"#94bbca","theme":"japan","archetype":"titan","crest":6},
+    {"id":"first_mist","name":"Ursprung des Nebels","hp":1416,"speed":1.04,"armor":0.28,"leak":8,"color":"#c2a4e7","theme":"japan","archetype":"titan","crest":7},
+    {"id":"breaker","name":"Richter der Brandung","hp":1450,"speed":1.04,"armor":0.29,"leak":8,"color":"#eab977","theme":"aegean","archetype":"titan","crest":8},
+    {"id":"trench_warden","name":"Leviathan der Tiefsee","hp":1532,"speed":1.08,"armor":0.31,"leak":8,"color":"#82d6bb","theme":"aegean","archetype":"titan","crest":9},
+    {"id":"iron_imperator","name":"Der Eiserne Imperator","hp":1450,"speed":1.04,"armor":0.29,"leak":8,"color":"#e5928c","theme":"rome","archetype":"titan","crest":8},
+    {"id":"furnace_heart","name":"Herz des Weltofens","hp":1532,"speed":1.08,"armor":0.31,"leak":8,"color":"#f5c27c","theme":"rome","archetype":"titan","crest":9},
+    {"id":"veil_shogun","name":"Shōgun der Schleier","hp":1450,"speed":1.04,"armor":0.29,"leak":8,"color":"#c4848e","theme":"japan","archetype":"titan","crest":8},
+    {"id":"winter_mask","name":"Maske des Ewigen Winters","hp":1532,"speed":1.08,"armor":0.31,"leak":8,"color":"#bcdcec","theme":"japan","archetype":"titan","crest":9}
   ],
   "challenges": [
     {"id":"campaign","name":"Feldzug","detail":"30 Wellen · Bossduelle im Rundkurs","unlock":1,"waves":12,"reward":1.0,"arena_waves":30},
@@ -95,5 +125,17 @@
     {"id":"levy","name":"Die Würfelwache","detail":"26 Wellen · günstigere Ziehungen · Truppen und Helden","unlock":5,"waves":12,"reward":1.75,"arena_waves":26},
     {"id":"duelist","name":"Eid der Champions","detail":"24 Wellen · häufigere Heldenfähigkeiten und Bosse","unlock":5,"waves":10,"reward":1.85,"arena_waves":24},
     {"id":"eclipse","name":"Die Sonnenfinsternis","detail":"34 Wellen · Nachtflügler und Spiegelschilde","unlock":6,"waves":14,"reward":2.0,"arena_waves":34}
+  ],
+  "difficulties": [
+    {"id":"normal","name":"Normal","detail":"Die ersten Formationen und ein regionaler Endboss.","rank":0,"hp":0.79,"speed":1.0,"boss_hp":1.0,"pressure":2,"reward":1.0,"clears":0,"mastery":0},
+    {"id":"hard","name":"Schwer","detail":"Schnellere Gruppen und mehr Panzerung im späteren Verlauf.","rank":1,"hp":1.12,"speed":1.06,"boss_hp":1.08,"pressure":-1,"reward":1.2,"clears":2,"mastery":3},
+    {"id":"hell","name":"Hölle","detail":"Elitegegner kommen früher. Die erste Urgestalt wartet am Ende.","rank":2,"hp":1.34,"speed":1.12,"boss_hp":1.17,"pressure":-3,"reward":1.45,"clears":2,"mastery":7},
+    {"id":"divine","name":"Göttlich","detail":"Größere Wellen drücken dichter nach. Bosse halten länger durch.","rank":3,"hp":1.58,"speed":1.18,"boss_hp":1.24,"pressure":-5,"reward":1.75,"clears":2,"mastery":12},
+    {"id":"primal","name":"Primal","detail":"Die stärksten Formationen und kürzere Fristen für die Urgestalten.","rank":4,"hp":1.83,"speed":1.24,"boss_hp":1.33,"pressure":-7,"reward":2.12,"clears":2,"mastery":18}
+  ],
+  "fieldSigns": [
+    {"id":"supply","name":"Feldzeichen des Nachschubs","forge":3,"awaken":3,"gold":[36,64],"essence":[0,0],"boss_damage":[0,0]},
+    {"id":"oracle","name":"Feldzeichen des Orakels","forge":3,"awaken":3,"gold":[0,0],"essence":[2,4],"boss_damage":[0,0]},
+    {"id":"hunt","name":"Feldzeichen der Jagd","forge":3,"awaken":3,"gold":[0,0],"essence":[0,0],"boss_damage":[0.12,0.22]}
   ]
 }

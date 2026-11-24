@@ -25,20 +25,18 @@ test('exported Blender actors include the clips used by Bevy', () => {
     assert.equal(asset.meshes[0].primitives.length,1,actor.id);
     const attributes=asset.meshes[0].primitives[0].attributes;
     assert.ok(Number.isInteger(attributes.COLOR_0) && Number.isInteger(attributes.JOINTS_0),actor.id);
-    if (actor.kind==='hero' || actor.kind==='troop') {
-      assert.ok(Number.isInteger(attributes.TEXCOORD_0), `${actor.id}: material finish coordinates`);
-      assert.ok(Number.isInteger(asset.materials[0].pbrMetallicRoughness.metallicRoughnessTexture?.index),
-        `${actor.id}: packed cloth and metal finishes`);
-    }
-    if (actor.id==='thekla' || actor.id==='marcus') {
+    const material = asset.materials[0].pbrMetallicRoughness;
+    assert.ok(Number.isInteger(attributes.TEXCOORD_0), `${actor.id}: surface coordinates`);
+    assert.ok(Number.isInteger(attributes.TEXCOORD_1), `${actor.id}: material finish coordinates`);
+    assert.ok(Number.isInteger(material.baseColorTexture?.index), `${actor.id}: painted colour atlas`);
+    assert.equal(material.baseColorTexture.texCoord ?? 0, 0, `${actor.id}: painted surface UVs`);
+    assert.ok(Number.isInteger(material.metallicRoughnessTexture?.index), `${actor.id}: packed finishes`);
+    assert.equal(material.metallicRoughnessTexture.texCoord,1,actor.id);
+    if (actor.kind==='hero') {
       assert.ok(Number.isInteger(attributes.TANGENT), `${actor.id}: normal-map tangents`);
-      assert.ok(Number.isInteger(attributes.TEXCOORD_1), `${actor.id}: second material UV set`);
       assert.ok(Number.isInteger(asset.materials[0].normalTexture?.index), `${actor.id}: woven and tooled surfaces`);
-      const painted = asset.materials[0].pbrMetallicRoughness.baseColorTexture;
-      assert.ok(Number.isInteger(painted?.index), `${actor.id}: hand-painted colour atlas`);
-      assert.equal(painted.texCoord ?? 0, asset.materials[0].normalTexture.texCoord ?? 0,
+      assert.equal(material.baseColorTexture.texCoord ?? 0, asset.materials[0].normalTexture.texCoord ?? 0,
         `${actor.id}: colour and relief share the surface UVs`);
-      assert.equal(asset.materials[0].pbrMetallicRoughness.metallicRoughnessTexture.texCoord,1,actor.id);
     }
   }
 });
@@ -51,6 +49,39 @@ test('the three Blender arenas ship as vertex-lit static meshes', () => {
     assert.ok(Number.isInteger(arena.meshes[0].primitives[0].attributes.COLOR_0),id);
     assert.ok(arena.materials[0].extensions.KHR_materials_unlit,id);
     assert.ok(!arena.animations?.length,id);
+  }
+});
+
+test('the campaign introduces regional formations and each difficulty has its own final boss and reward metals', () => {
+  function state(theme, difficulty) {
+    return JSON.parse(core.create_game(JSON.stringify({ theme,difficulty,rule_version:2,challenge:'campaign',levels:[1],seed:46 })));
+  }
+  function spawn(game, wave, spawned) {
+    return JSON.parse(core.advance_game(JSON.stringify({ ...game, phase:'combat', wave, wave_tick:0, spawned }), 1)).enemies[0];
+  }
+  for (const region of catalog.themes) {
+    const normal = state(region.id,'normal');
+    assert.equal(spawn(normal,1,0).kind,region.wave_pack[0]);
+    assert.equal(spawn(normal,6,0).kind,region.wave_pack[1]);
+    let previousHealth = 0;
+    let previousTime = Infinity;
+    for (const stage of catalog.difficulties) {
+      const game = state(region.id,stage.id);
+      const finalSpawn = 17 + Math.floor(stage.rank / 2);
+      const boss = spawn(game, game.wave_limit, finalSpawn);
+      assert.equal(boss.kind, region.boss_pack[stage.rank]);
+      assert.ok(boss.hp > previousHealth);
+      assert.ok(boss.deadline < previousTime);
+      previousHealth = boss.hp;
+      previousTime = boss.deadline;
+      const rewarded = JSON.parse(core.advance_game(JSON.stringify({
+        ...game, phase:'combat', wave:5, wave_tick:259, spawned:20,
+      }), 261));
+      assert.equal(rewarded.treasury.wave, 6);
+      assert.equal(rewarded.treasury.spoils.shards, 1 + Math.floor(stage.rank / 2));
+      assert.equal(rewarded.treasury.spoils.runedust, stage.rank ? 1 + Math.floor(stage.rank / 2) : 0);
+      assert.equal(rewarded.treasury.spoils.cores, Math.max(0, stage.rank - 1));
+    }
   }
 });
 

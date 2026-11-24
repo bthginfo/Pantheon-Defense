@@ -8,11 +8,12 @@ from pathlib import Path
 import bpy
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
+from mathutils.noise import noise_vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from forge import ASSETS, MODELS, SOURCES, clean, empty, look_at, material
 from geometry import bevel_block as block, color_material, mesh_object, pigment_family, shell, span, stone, studio, volume
-from landmarks import forum, regional_sites, terrace_tile
+from landmarks import forum, regional_sites, terrace_tile, wedged_arch
 
 # These are the local coordinates used by the circuit in the simulation. Blender is Z-up.
 COLUMNS = (-4.35, -1.47, 1.47, 4.35)
@@ -21,12 +22,13 @@ ROUTE = [(-6.48,-6.63),(-4.65,-8.94),(4.57,-8.94),(6.48,-6.69),
          (6.48,6.63),(4.65,8.94),(-4.57,8.94),(-6.48,6.69)]
 PALETTES = {
     "aegean": {
-        "pave":["e1cfac","ddc9a4","d0ba96","e8d7b5","d9c6a8","cfb995"],
+        "pave":["e4d1ac","d9c3a0","d0b690","e8d5b2","d7bf99","c4aa83"],
         "wall":["b5a17e","c8b594","a29276","d6c4a2","b7a586"],
         "low":["989681","ad9d86","8c9386","bab09c","c2b394"],
         "grout":"a9977e","base":"ad9b7d","top":"f0d9ab","ink":"39565e",
         "mosaic":["3d747a","6ea19a","22565f","8bb5a4","deb275"],
-        "zone":["d8c1a1","d7c7ad","dfcbab","d1bd9e","e4d3b4"],
+        "zone":["d8c4a1","d6c3a4","dfccab","d0b998","e1cfad"],
+        "lane":["bcaa89","c8b491","c0ad8a","cdb795","bbab8f"],
         "blue":"467e83","red":"af725a","water":["0c4959","125565","146674","1b7280","247e89"],
         "surf":["3d9898","69b9b4","91c7bd","d2e3cf"],
         "wood":["825437","a37149","b48358","96633f"],
@@ -39,7 +41,8 @@ PALETTES = {
         "low":["71594d","938174","897768","ad9379","9c8369"],
         "grout":"8f6957","base":"976d58","top":"dfbb8f","ink":"604343",
         "mosaic":["824e45","a36351","743f3f","c2895f","dab377"],
-        "zone":["d5b597","cbb296","d1b08e","c3aa8d","ddbf9a"],
+        "zone":["d3b89a","cbb397","d6b798","c6ac91","ddbd9a"],
+        "lane":["b28a70","b78d75","c0967b","ad856e","c39e80"],
         "blue":"6c8883","red":"ae6257","water":["183d4b","214957","2b5461","396570","49777f"],
         "surf":["658d8c","82a5a0","b4c4aa","cfceb1"],
         "wood":["624538","876148","9a7755","6c4a37"],
@@ -52,7 +55,8 @@ PALETTES = {
         "low":["52696a","6b7a70","7d897e","959789","8f9a89"],
         "grout":"6c7b75","base":"76867d","top":"d7d0b3","ink":"294550",
         "mosaic":["43796e","609289","3b6571","7a9d8c","bd8e70"],
-        "zone":["adbcad","bac5b2","b8c2af","adb7a9","c6cbb6"],
+        "zone":["b2beb0","b8c5b6","b9c4b4","adb9ac","c4ccbb"],
+        "lane":["8e9f97","99a79a","91a199","a5aea1","8c9b93"],
         "blue":"5d8f86","red":"b67064","water":["144655","1a5362","235d6a","3c747b","5e908c"],
         "surf":["608e85","7fa9a1","9bb8a8","cfd7b9"],
         "wood":["75554a","977365","ad8271","655047"],
@@ -130,9 +134,11 @@ def paving(root, theme, rng, points, m):
     else:
         sections("Glazed wall band",outline(points,.79),outline(points,.86),.24,.065,.13,m["mosaic"],root,rng)
     inner, mid, outer = outline(points,-.70),outline(points,-.11),outline(points,.69)
-    sections("Inner flagstone", inner, mid, .646,.333,.16,m["pave"],root,rng,True)
-    sections("Outer flagstone", mid, outer, .784,.330,.15,m["pave"],root,rng,True)
+    sections("Hewn flagstones on the inner enemy path", inner, mid, .646,.333,.16,m["lane"],root,rng,True)
+    sections("Broad flagstones along the outer enemy path", mid, outer, .784,.330,.15,m["lane"],root,rng,True)
     sections("Path trim",outline(points,-.77),outline(points,-.68),.89,.34,.100,m["wall"],root,rng)
+    sections("Glazed course tracing the outer path",outline(points,.48),outline(points,.57),.63,.345,.050,
+             (m["mosaic"][0],m["mosaic"][2],m["mosaic"][1]),root,rng)
     for y in (-4.19,4.19):
         block("Training court stone bed",(0,y,.277),(11.55,6.88,.151),m["grout"],root,.065)
         for x in (-5.69,5.69):
@@ -148,11 +154,52 @@ def paving(root, theme, rng, points, m):
             root_color=m["blue" if y<0 else "red"]
             index=m["zone"].index(tint)
             accents=[m["zone"][(index+offset)%len(m["zone"])] for offset in (1,2)]
-            terrace_tile(root,x,-y,tint,accents,rng)
+            terrace_tile(root,x,-y,tint,accents,rng,theme)
             for side in (-1,1):
                 block("Small diamond of the camp inlay",(x+side*1.18,-y-.608,.391),
                       (.092,.092,.014),root_color,root,.009,math.pi/4)
     forum(root,theme,m)
+
+
+def shoreline_details(root,theme,m):
+    """Make the shoreline read as a Greek harbour, Roman embankment or Japanese shrine."""
+    for side in (-1,1):
+        if theme=="aegean":
+            stoa=empty("Open harbour colonnade",(7.42*side,2.44*side,-.22),root)
+            stoa.rotation_euler.z=-side*math.pi/2
+            block("Cut limestone pier below the colonnade",(0,0,-.031),(2.63,.91,.253),m["wall"][1],stoa,.073)
+            for x in (-1.03,-.36,.36,1.03):
+                shell("Carved pier column",[(.102,.095,.095,x,0),(.258,.081,.081,x,0),
+                      (.955,.059,.059,x,0),(1.01,.112,.106,x,0)],m["top"],stoa,10)
+            block("Long jade frieze against the sun",(0,0,1.071),(2.47,.52,.153),m["mosaic"][0],stoa,.033)
+            for i in range(11):
+                block("Cut warm cap stone",(i*.222-1.114,0,1.172),(.207,.65,.115),
+                      m["pave"][i%len(m["pave"])],stoa,.024)
+        elif theme=="rome":
+            ramp=empty("Terracotta-faced seawall gallery",(7.50*side,2.86*side,-.71),root)
+            ramp.rotation_euler.z=-side*math.pi/2
+            for i in range(3):
+                x=(i-1)*.76
+                wedged_arch(ramp,x,0.,-.018,.285,.429,.322,m,m["wall"])
+            block("Continuous flagstone cornice over the seaside arches",(0.,0.,.737),(2.49,.458,.173),
+                  m["top"],ramp,.042)
+            for i in range(9):
+                block("Glazed brick course above the carved arches",(i*.265-1.061,0.,.847),
+                      (.243,.52,.082),m["roof"][i%4],ramp,.018)
+        else:
+            bridge=empty("Cedar stair and shore landing",(7.39*side,2.60*side,-.39),root)
+            bridge.rotation_euler.z=-side*math.pi/2
+            for i in range(8):
+                x=i*.256-.898
+                h=.036-.067*(x*x)
+                tread=block("Split cedar deck board",(x,0,h),(.232,.821,.092),m["wood"][i%4],bridge,.026)
+                tread.rotation_euler.y=.09*x
+            for x in (-.91,0.,.91):
+                for sign in (-1,1):
+                    block("Red lantern-bridge post",(x,sign*.372,.126),(.097,.109,.462),m["red"],bridge,.021)
+            for sign in (-1,1):
+                span("Carved cedar rail linking the posts",(-1.04,sign*.372,.309),(1.04,sign*.372,.309),
+                     .044,m["wood"][0],bridge,6)
 
 
 def slabs(root, a, b, z, colors, rng):
@@ -363,15 +410,47 @@ def rifts(root,theme,m):
         portal=empty("Rift vault",(x*1.105,y*1.03,.24),root)
         portal.rotation_euler.z=(-.26 if x>0 else math.pi-.26)
         block("Rift footing",(0,0,.07),(1.24,.55,.21),m["ink"],portal,.062)
+        block("Worn sill where the rift meets the path",(0,-.274,.113),(1.168,.244,.111),
+              m["lane"][2],portal,.037)
         for side in (-1,1):
-            for h in range(3):
-                block("Dark weathered portal pier",(side*.469,0,.24+.265*h),(.29,.48,.30),
-                      m["wall"][(h+1)%4],portal,.049,side*.014*h)
-        for i in range(8):
-            a=math.pi*(i+.5)/8
-            obj=block("Cut arch voussoir",(.46*math.cos(a),0,.91+.465*math.sin(a)),
-                      (.26,.44,.287),m["pave"][(i+2)%5],portal,.042)
-            obj.rotation_euler.y=-a
+            if theme=="japan":
+                span("Cinnabar timber of the rift gate",(side*.496,0.,.128),(side*.422,0.,1.309),
+                     .118,m["red"],portal,8,.087)
+                shell("Slate seat for the lacquered pillar",[(.15,.183,.155,side*.495,0),
+                      (.25,.169,.143,side*.495,0),(.332,.148,.129,side*.484,0)],m["low"][2],portal,8)
+            else:
+                for h in range(3):
+                    block("Dark weathered portal pier",(side*.469,0,.24+.265*h),(.29,.48,.30),
+                          m["wall"][(h+1)%4],portal,.049,side*.014*h)
+                if theme=="aegean":
+                    shell("Limestone pilaster facing the rift mouth",[(.212,.081,.077,side*.481,-.255),
+                          (.32,.058,.060,side*.481,-.255),(.861,.056,.057,side*.481,-.256),
+                          (.934,.097,.082,side*.481,-.255)],m["pave"][3],portal,10)
+                else:
+                    block("Recessed red-glazed tab on the fortress jamb",(side*.474,-.248,.624),
+                          (.146,.045,.340),m["roof"][2],portal,.024)
+        if theme=="japan":
+            block("Lacquered transom crossing the rift gate",(0,0.,1.224),(1.289,.279,.129),
+                  m["red"],portal,.029)
+            outline=[(-.753,1.423),(-.48,1.335),(0.,1.313),(.48,1.335),(.753,1.423)]
+            for a,b in zip(outline,outline[1:]):
+                span("Swept indigo lintel at the rift gate",(a[0],0,a[1]),(b[0],0,b[1]),
+                     .086,m["roof"][0],portal,6,.077)
+            for i in (-1,0,1):
+                block("Folded paper strip below the rift lintel",(i*.203,-.151,1.134),
+                      (.034,.033,.149),m["top"],portal,.010,.12*i)
+        else:
+            for i in range(8):
+                a=math.pi*(i+.5)/8
+                obj=block("Cut arch voussoir",(.46*math.cos(a),0,.91+.465*math.sin(a)),
+                          (.26,.44,.287),m["pave"][(i+2)%5] if theme=="aegean" else m["wall"][i%5],portal,.042)
+                obj.rotation_euler.y=-a
+            if theme=="rome":
+                block("Heavy keystone with an iron cap",(0,-.246,1.363),(.198,.136,.240),m["top"],portal,.037)
+            else:
+                for sign in (-1,1):
+                    block("Jade accent set into an arch springing",(sign*.480,-.245,.940),(.304,.077,.103),
+                          m["mosaic"][0],portal,.025)
         center=Vector((0,-.089,.65))
         pts=[tuple(center)]
         for i in range(12):
@@ -381,6 +460,10 @@ def rifts(root,theme,m):
         prism=mesh_object("Facet-cut translucent-looking portal",pts,faces,None,portal)
         for mat in light: prism.data.materials.append(mat)
         for i,f in enumerate(prism.data.polygons): f.material_index=[1,2,3,2,1,0][i%6]
+        paint=prism.data.color_attributes.new(name="Artist pigment",type="FLOAT_COLOR",domain="CORNER")
+        for face in prism.data.polygons:
+            for loop,index in zip(face.loop_indices,face.vertices):
+                paint.data[loop].color=light[4 if index==0 else face.material_index].diffuse_color
         for i in range(3):
             block("Warm rift reflections",(-.41+.37*i,-.12,.105),(.25,.30,.021),light[i+1],portal,.015)
 
@@ -396,11 +479,13 @@ def bake(main,theme,m):
         start=len(points)
         points.extend(evaluated.matrix_world @ v.co for v in mesh.vertices)
         normal_matrix=evaluated.matrix_world.to_3x3().inverted().transposed()
+        painted=mesh.color_attributes.get("Artist pigment")
         for polygon in mesh.polygons:
             indices=tuple(start+i for i in polygon.vertices)
             pigment=mesh.materials[polygon.material_index].diffuse_color
             faces.append(indices)
-            metadata.append((tuple(pigment), (normal_matrix @ polygon.normal).normalized(), obj.name))
+            washes=[tuple(painted.data[i].color) for i in polygon.loop_indices] if painted else None
+            metadata.append((tuple(pigment), (normal_matrix @ polygon.normal).normalized(), obj.name,washes))
         evaluated.to_mesh_clear()
     bvh=BVHTree.FromPolygons(points,faces)
     shade_rays=[Vector(d).normalized() for d in ((-.70,-.61,1.20),(-.63,-.70,1.17),(-.75,-.53,1.18))]
@@ -412,10 +497,12 @@ def bake(main,theme,m):
     mesh=mesh_object("Arena mesh with portable baked lighting",points,faces,pigment,None)
     attribute=mesh.data.color_attributes.new(name="Pigment",type="BYTE_COLOR",domain="CORNER")
     mesh.data.color_attributes.active_color=attribute
-    for face,(color,n,name) in zip(mesh.data.polygons,metadata):
+    for face,(color,n,name,washes) in zip(mesh.data.polygons,metadata):
         center=face.center
         sky=.6+.40*max(0.,n.z)
-        if name.startswith("Faceted, mineral"):
+        if washes:
+            values=washes
+        elif name.startswith("Faceted, mineral"):
             values=[]
             for index in face.vertices:
                 v=points[index]
@@ -441,7 +528,11 @@ def bake(main,theme,m):
                 light=daylight*shadow
                 amount=(.47+.185*sky+.602*light)*contact
                 grain=(.987+.026*math.sin(v.x*3.13-v.y*2.49+v.z*4.11))
-                amount*=grain
+                # Broad, directional glaze brings out the cut planes without adding a draw call.
+                scale=.041 if name.startswith(("Fitted stone","Training court","Dry-brushed")) else .081
+                rake=noise_vector(Vector((1.8*v.x+.72*v.y,.55*v.y+2.1*v.z,.4+v.x*.59)))[0]
+                scumble=noise_vector(Vector((v.x*3.9+v.y*2.2,v.y*.74,v.z*7.5)))[1]
+                amount*=grain*(1.+scale*(rake+.45*scumble))
                 halo=sum(max(0.,1.-(v-gate).length/1.07)**2 for gate in rift_sites)*max(0.,n.z)
                 values.append((color[0]*amount*(.921+.186*light)+.069*halo,
                                color[1]*amount*(.972+.048*light)+.007*halo,
@@ -460,7 +551,7 @@ def bake(main,theme,m):
     return mesh
 
 
-def build(theme, review_directory):
+def build(theme, review_directory,output=None):
     clean()
     rng=random.Random(theme)
     m={k: pigment_family(k,v) if isinstance(v,list) else material(k,v) for k,v in PALETTES[theme].items()}
@@ -470,6 +561,7 @@ def build(theme, review_directory):
     sea_and_shore(root,theme,path,m,rng)
     architecture(root,theme,m,rng)
     harbor_detail(root,theme,m)
+    shoreline_details(root,theme,m)
     rifts(root,theme,m)
     mesh=bake(root,theme,m)
     scene,camera=studio((9.8,-32.1,22.0),(0,0,-.23),1280,880,27.1,samples=18)
@@ -477,16 +569,21 @@ def build(theme, review_directory):
     scene.view_settings.look="None"
     scene.render.image_settings.file_format="WEBP"
     scene.render.image_settings.quality=89
-    scene.render.filepath=str(ASSETS/"scenes"/f"{theme}.webp")
+    models,sources,scenes=MODELS,SOURCES,ASSETS/"scenes"
+    if output:
+        models,sources,scenes=(output/name for name in ("models","blend","scenes"))
+        for path in (models,sources,scenes):
+            path.mkdir(parents=True,exist_ok=True)
+    scene.render.filepath=str(scenes/f"{theme}.webp")
     bpy.ops.object.select_all(action="DESELECT")
     mesh.select_set(True)
     bpy.context.view_layer.objects.active=mesh
     mesh["terrain_theme"]=theme
     mesh["formation_cells"]=32
-    bpy.ops.export_scene.gltf(filepath=str(MODELS/f"arena_{theme}.glb"), export_format="GLB",
+    bpy.ops.export_scene.gltf(filepath=str(models/f"arena_{theme}.glb"), export_format="GLB",
         use_selection=True,export_yup=True,export_animations=False,export_cameras=False,export_lights=False,
         export_all_vertex_colors=False)
-    bpy.ops.wm.save_as_mainfile(filepath=str(SOURCES/f"arena_{theme}.blend"),compress=True)
+    bpy.ops.wm.save_as_mainfile(filepath=str(sources/f"arena_{theme}.blend"),compress=True)
     bpy.ops.render.render(write_still=True)
     if review_directory:
         scene.render.resolution_x=820
@@ -504,9 +601,10 @@ if __name__=="__main__":
     cli=ArgumentParser(description=__doc__)
     cli.add_argument("themes",nargs="*",metavar="THEME")
     cli.add_argument("--review",type=Path,metavar="DIRECTORY")
+    cli.add_argument("--output",type=Path,metavar="DIRECTORY")
     args=cli.parse_args(sys.argv[sys.argv.index("--")+1:] if "--" in sys.argv else [])
     if args.review:
         args.review.mkdir(parents=True,exist_ok=True)
     for name in PALETTES:
         if not args.themes or name in args.themes:
-            build(name,args.review)
+            build(name,args.review,args.output)

@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import core from './generated/simulation.js';
 import { create, mutate, read } from './store.mjs';
-import { credit, normalizedHandle, profile, remember, sha, validHandle } from './accounts.mjs';
+import { credit, creditWaves, normalizedHandle, profile, remember, sha, validHandle } from './accounts.mjs';
 import { HttpError } from './http.mjs';
+import { difficultyProgress } from '../shared/progression.js';
 
 export const catalog = JSON.parse(readFileSync(new URL('../public/assets/catalog.json', import.meta.url), 'utf8'));
 const finished = game => game.phase === 'won' || game.phase === 'lost';
@@ -50,6 +51,11 @@ export async function createMatch(handle, data) {
   const host = await profile(handle);
   const theme = catalog.themes.find(item => item.id === data.theme);
   const challenge = catalog.challenges.find(item => item.id === data.challenge);
+  const difficulty = catalog.difficulties.find(item => item.id === (data.difficulty ?? 'normal'));
+  if (!difficulty) throw new HttpError(400, 'Diese Schwierigkeitsstufe gibt es nicht.');
+  if (!difficultyProgress(difficulty, catalog.difficulties, host).unlocked) {
+    throw new HttpError(403, `${difficulty.name} ist für dein Konto noch gesperrt.`);
+  }
   if (!theme || !challenge || Math.max(theme.unlock, challenge.unlock) > host.level) {
     throw new HttpError(403, 'Diese Karte oder Prüfung ist noch gesperrt.');
   }
@@ -60,18 +66,24 @@ export async function createMatch(handle, data) {
     if (error.status === 401) throw new HttpError(404, 'Diesen Rufnamen gibt es noch nicht.');
     throw error;
   }) : null;
+  if (guest && !difficultyProgress(difficulty, catalog.difficulties, guest).unlocked) {
+    throw new HttpError(403, `${difficulty.name} ist für den eingeladenen Rufnamen noch gesperrt.`);
+  }
   const id = randomUUID();
   const token = duo ? randomBytes(24).toString('base64url') : undefined;
+  const players = guest ? [host, guest] : [host];
   const game = JSON.parse(core.create_game(JSON.stringify({
-    rule_version: 2, theme: theme.id, challenge: challenge.id, levels: guest ? [host.level, guest.level] : [host.level],
-    masteries: guest ? [host.masteries, guest.masteries] : [host.masteries],
+    rule_version: 2, theme: theme.id, challenge: challenge.id, difficulty: difficulty.id,
+    levels: players.map(account => account.level),
+    masteries: players.map(account => account.masteries),
+    field_signs: players.map(account => account.fieldSign && { id: account.fieldSign, rank: account.fieldSigns[account.fieldSign] }),
     seed: randomBytes(4).readUInt32LE(),
   })));
   const room = {
     id, host: { handle: host.handle, name: host.name }, guest: guest && { handle: guest.handle, name: guest.name },
     joined: !duo, inviteHash: token && sha(token), inviteExpiry: Date.now() + 86_400_000,
     game, clockMs: Date.now(), liveUntil: Date.now() + 30_000, version: 1,
-    lastWrite: Date.now(), receipts: [], credited: false,
+    lastWrite: Date.now(), receipts: [], paidWave: 0, credited: false,
   };
   await create(key(id), room);
   await remember(handle, id);
@@ -109,24 +121,39 @@ export async function acceptInvite(handle, invitation) {
   return visible(room, handle);
 }
 
+const clearedWave = game => game.treasury?.wave ?? 0;
+
 async function award(room) {
-  if (room.credited || !finished(room.game)) return;
+  if (room.credited) return;
   const { game } = room;
+  const wave = clearedWave(game);
+  const payWaves = wave > (room.paidWave ?? 0);
+  const settleMatch = finished(game);
+  if (!payWaves && !settleMatch) return;
   const challenge = catalog.challenges.find(item => item.id === game.challenge);
+  const difficulty = catalog.difficulties.find(item => item.id === game.difficulty);
   const won = game.phase === 'won';
   // Leaving the lobby cannot award XP.
-  const xp = game.wave ? Math.round((game.wave * 20 + Math.min(game.kills, 300) + (won ? 190 : 0)) * (challenge?.reward ?? 1)) : 0;
-  const seals = won ? (game.challenge === 'campaign' ? 2 : 3) : game.wave >= 5 ? 1 : 0;
-  for (const [index, member] of [room.host, room.joined ? room.guest : null].entries()) {
-    if (!member) continue;
+  const experience = game.wave * 20;
+  const legacyBonus = !difficulty && game.wave ? Math.min(game.kills, 300) + (won ? 190 : 0) : 0;
+  const xp = Math.round((experience + legacyBonus) * (challenge?.reward ?? 1) * (difficulty?.reward ?? 1));
+  const seals = won ? (game.challenge === 'campaign' ? 2 : 3) + Math.floor((difficulty?.rank ?? 0) / 2) : game.wave >= 5 ? 1 : 0;
+  const members = room.joined && room.guest ? [room.host, room.guest] : [room.host];
+  await Promise.all(members.map(async (member, index) => {
+    if (payWaves) await creditWaves(member.handle, room.id, game.treasury);
+    if (!settleMatch) return;
     const player = game.players[index];
     await credit(member.handle, {
-      id: room.id, theme: game.theme, challenge: game.challenge, wave: game.wave, won, xp, seals,
+      id: room.id, theme: game.theme, challenge: game.challenge, difficulty: difficulty?.id ?? 'normal',
+      wave: game.wave, won, xp, seals, spoils: game.treasury?.spoils,
       kills: game.kills, merges: player.merges, casts: player.casts, duo: Boolean(room.guest),
       completed: new Date().toISOString(),
     });
-  }
-  await mutate(key(room.id), current => current.credited ? undefined : { ...current, credited: true });
+  }));
+  await mutate(key(room.id), current => {
+    if (current.credited || (!settleMatch && (current.paidWave ?? 0) >= wave)) return undefined;
+    return { ...current, paidWave: Math.max(current.paidWave ?? 0, wave), credited: settleMatch };
+  });
 }
 
 export async function board(handle, id) {
@@ -134,18 +161,21 @@ export async function board(handle, id) {
   playerIndex(stored, handle);
   const now = Date.now();
   let room = advance(stored, now);
-  if ((!stored.credited && finished(room.game)) || (active(room.game) && now - stored.lastWrite > 14_000)) {
+  const checkpoint = (saved, next) => clearedWave(next.game) > clearedWave(saved.game) ||
+    (finished(next.game) && !finished(saved.game)) || (active(next.game) && now - saved.lastWrite > 14_000);
+  if (checkpoint(stored, room)) {
     room = await mutate(key(id), saved => {
       const next = advance(saved, now);
-      if (finished(next.game) && finished(saved.game)) return undefined;
-      if (!finished(next.game) && now - saved.lastWrite <= 14_000) return undefined;
+      if (!checkpoint(saved, next)) return undefined;
       return {
         ...next, clockMs: Math.max(next.clockMs, now > saved.liveUntil ? now : next.clockMs),
         liveUntil: now + 35_000, lastWrite: now, version: saved.version + 1,
       };
     });
+    await award(room);
     room = advance(room, now);
-    if (finished(room.game)) await award(room);
+  } else {
+    await award(stored);
   }
   return visible(room, handle);
 }
@@ -179,7 +209,7 @@ export async function act(handle, id, data) {
       liveUntil: now + 35_000, lastWrite: now, version: saved.version + 1,
       receipts: [...saved.receipts.slice(-95), receipt] };
   });
-  if (finished(room.game)) await award(room);
+  await award(room);
   return visible(room, handle);
 }
 
@@ -191,6 +221,7 @@ export async function matchList(handle) {
   })));
   return rooms.filter(Boolean).map(room => ({
     id: room.id, theme: room.game.theme, mode: room.guest ? 'duo' : 'solo', joined: room.joined,
-    phase: room.game.phase, wave: room.game.wave, challenge: room.game.challenge, partner: room.guest?.name,
+    phase: room.game.phase, wave: room.game.wave, challenge: room.game.challenge,
+    difficulty: room.game.difficulty ?? 'normal', partner: room.guest?.name,
   }));
 }

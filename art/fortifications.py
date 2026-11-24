@@ -1,4 +1,5 @@
 """Original Blender structures, mechanical actions, and readable spell projectiles."""
+from argparse import ArgumentParser
 import math
 import sys
 from pathlib import Path
@@ -10,30 +11,43 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 from cast import bake_skin, pose, select_export
 from figures import cut, emblem, fabric_panel, pin
 from forge import CATALOG, MODELS, PORTRAITS, SOURCES, clean, empty, material, span
-from geometry import bevel_block as block, color_material, mesh_object, shell, silhouette, studio, torus_mesh
+from geometry import bevel_block as block, color_material, mesh_object, shell, silhouette, studio, torus_mesh, volume
 
 
 ACCENTS = {
-    "aegean": ("d8c3a0","b4a186","557e76","b89860","93664b","50616a","efd0a0","cf9263"),
-    "rome": ("c6a084","a27763","895353","c39868","80604c","5e6267","e5ba8b","d49462"),
-    "japan": ("b8b5a0","848d83","a76058","bd9f71","896557","475969","e3c195","96b2ad"),
+    "aegean": ("e1c9a2","aa8e70","3f6a61","ba8c51","976644","384c55","ebbf76","ede1a6"),
+    "rome": ("d0ae91","986951","943f3e","b88250","825c47","444852","e6b671","e99353"),
+    "japan": ("c1c0ac","7f8880","aa4d42","a88856","8e614b","354957","dbba7c","aacbc0"),
 }
 
 
 def palette(data):
     b=ACCENTS[data["theme"]]
-    return {key:material(key,value,metallic) for key,value,metallic in [
-        ("stone",b[0],0),("foundation",b[1],0),("accent",b[2],0),("gold",b[3],.17),
-        ("wood",b[4],0),("hem",b[5],0),("fillet",b[6],.15),("light",b[7],0),
-        ("dark wood","5a4b42",0),("metal","a2aaa6",.26),("fabric","dbba95",0),
-    ]}
+    paints={}
+    for key,value,metallic,pigment in [
+        ("stone",b[0],0,"linen light"),("foundation",b[1],0,"linen shadow"),
+        ("accent",b[2],.07,"paint red" if data["theme"]!="aegean" else "paint blue"),
+        ("gold",b[3],.43,"bronze"),("wood",b[4],0,"ash"),("hem",b[5],.09,"iron"),
+        ("fillet",b[6],.37,"brass"),("light",b[7],0,""),("ember","bc552b",0,""),
+        ("flare","ffdfab",0,""),("dark wood","53413b",0,"wood"),
+        ("metal","8998a1",.48,"iron edge"),("fabric","d5b190",0,"linen"),
+    ]:
+        paint=material(key,value,metallic)
+        if pigment:
+            paint["Brush pigment"]=pigment
+        paints[key]=paint
+    return paints
 
 
 def plinth(root,m,shape="bevel"):
     if shape=="round":
         shell("Fluted drum footing",[(0,.565,.48,0,0),(.08,.626,.57,0,0),
              (.18,.595,.55,0,0),(.236,.53,.49,0,0)],m["foundation"],root,12)
-        torus_mesh("Inlaid marble base ring",(0,0,.21),.475,.021,m["gold"],root,24)
+        torus_mesh("Inlaid weathered ring at the footing",(0,0,.21),.475,.021,m["gold"],root,16)
+        for i in range(10):
+            q=math.tau*i/10
+            block("Carved wedge spanning the edge of the drum",(.522*math.cos(q),.471*math.sin(q),.136),
+                  (.173,.108,.128),m["stone"],root,.023,q)
     else:
         for height,w,d,paint in (
             (.049,1.46,1.14,"foundation"),(.133,1.38,1.04,"stone"),(.207,1.25,.95,"foundation")):
@@ -41,6 +55,13 @@ def plinth(root,m,shape="bevel"):
         for x in (-.54,.54):
             for y in (-.38,.38):
                 pin("Inset base coin",(x,y,.275),.052,m["gold"],root)
+        for side in (-1,1):
+            for i in range(5):
+                x=(i-2)*.254+.032*side
+                block("Dressed individual block across the plinth",(x,side*.525,.121),
+                      (.241,.084,.090),m["stone"] if i%2 else m["foundation"],root,.023)
+            span("Recessed glazed plinth band",(-.60,side*.495,.207),(.60,side*.495,.207),
+                 .022,m["accent"],root,6)
 
 
 def roof(parent, width, length, z, h,m):
@@ -64,6 +85,8 @@ def ballista(data,root,m):
     base=empty("Mechanism",(0,0,.465),root)
     focus=empty("Focus",(0,-.24,.267),base)
     roman=data["id"]=="scorpio"
+    if roman:
+        base.scale=(.90,1.,1.10)
     for side in (-1,1):
         for z,y,tilt in ((.32,.115,0),(.53,.166,.374)):
             post=block("Mortised seasoned timber cheek",(side*.311,y,z),(.19,.75,.226),
@@ -72,13 +95,19 @@ def ballista(data,root,m):
         for j in range(3):
             block("Fitted iron brace",(side*.31,.126+.064*j,.470+.072*j),(.230,.109,.109),
                   m["hem"],root,.023)
+            pin("Visible hammered rivet on a timber brace",(side*.321,.068+.064*j,.495+.072*j),
+                .030,m["gold"],root)
         span("A-frame mortise brace",(side*.445,.333,.255),(side*.280,.119,.692),.066,m["wood"],root,8)
+        span("Sloped reinforcing cheek along the wooden carriage",(side*.39,-.339,.333),
+             (side*.36,.39,.506),.061,m["metal"] if roman else m["accent"],root,7,.069)
         shell("Wound torsion spring and its casting",[
             (.12,.106,.103,side*.294,-.185),(.17,.121,.121,side*.294,-.185),(.37,.117,.117,side*.294,-.185),
             (.42,.094,.095,side*.294,-.185)
         ],m["gold"],base,9,True)
         for z in (.18,.243,.305):
             torus_mesh("Individual torsion string coil",(side*.294,-.184,z),.112,.015,m["dark wood"],base,12,5)
+        torus_mesh("Raised worn ring around the top of the casting",(side*.294,-.184,.393),
+                   .110,.014,m["fillet"],base,12,5)
         for k,(x,z) in enumerate(((.31,.30),(.46,.31),(.655,.325),(.747,.354))):
             if k:
                 y=-.31+(k-1)*.045
@@ -96,20 +125,33 @@ def ballista(data,root,m):
     for n in range(2):
         x=(n-.5)*.179
         block("Recessed winch spool collar",(x,.522,.188),(.11,.137,.153),m["gold"],base,.025)
+    span("Transverse hand crank behind the carriage",(-.405,.519,.187),(.405,.519,.187),
+         .034,m["metal"],base,7)
+    for side in (-1,1):
+        span("Worked ash grip at the end of the crank",(side*.399,.512,.187),(side*.399,.512,.061),
+             .038,m["wood"],base,7,.022)
+    block("House mark inlaid into the front of the base",(0,-.538,.196),(.43,.050,.121),m["accent"],root,.021)
+    emblem("wing" if roman else "sun",root,0.,-.570,.196,.42,m)
     return base,focus
 
 
 def flame(root,m,source,style):
     x,y,z=source
-    for i in range(6):
-        a=math.tau*i/6
-        rad=.107+.026*math.sin(i*2.)
-        colors=(m["light"],m["gold"],m["fillet"])
-        p=(x+rad*math.cos(a),y+rad*math.sin(a),z+.063+(.030*i))
-        flame=cut("Layered facets of flame or spirit light",root,p,(.091,.093,.206 if i%2 else .164),
-                  colors[i%len(colors)],2 if i==0 else 1)
-        flame.rotation_euler.x=math.sin(a)*.39
-        flame.rotation_euler.y=math.cos(a)*.35
+    for i in range(5):
+        angle=math.tau*i/5+.22
+        width=.109+.024*math.sin(i*1.92)
+        height=.299+.090*math.cos(i*2.1)
+        rings=[]
+        for t,size in ((0.,.53),(.23,1.),(.54,.63),(.77,.38),(1.,.012)):
+            sway=.118*(t**1.5-.12)
+            cx=x+(.102+sway)*math.cos(angle)+.031*t
+            cy=y+(.102+sway)*math.sin(angle)
+            rings.append([(cx+width*size*math.cos(q),cy+width*size*math.sin(q),z+height*t)
+                          for q in (math.tau*j/6 for j in range(6))])
+        volume("Keen edges of a layered sculpted flame",rings,m["light"] if style=="sea" else m["ember"],root)
+    shell("Pale flame core",[(z-.043,.114,.114,x,y),(z+.105,.172,.153,x,y),
+          (z+.219,.101,.087,x+.036,y),(z+.392,.004,.004,x+.089,y)],
+          m["flare"],root,8)
 
 
 def brazier(data,root,m):
@@ -123,6 +165,9 @@ def brazier(data,root,m):
             radius=.436-.048*i
             shell("Tapering courses of the lighthouse",[(z-.056,radius,radius,0,0),
                (z+.051,radius*1.02,radius*1.02,0,0)],m["stone"] if i%2 else m["foundation"],root,10)
+            if i in (1,3):
+                block("Shadow in the deep-set seaward window",(0,-radius+.012,z),
+                      (.129,.079,.094),m["hem"],root,.016)
         h=1.034
         shell("Open annular lantern ledge",[(h-.095,.375,.375,0,0),(h,.447,.447,0,0),
             (h+.076,.454,.454,0,0)],m["gold"],root,12)
@@ -131,11 +176,21 @@ def brazier(data,root,m):
             p=(math.cos(a)*.362,math.sin(a)*.362,h+.258)
             block("Seaward lantern spokes",p,(.052,.065,.367),m["accent"],root,.014,a)
         torus_mesh("Cast lantern railing",(0,0,h+.409),.360,.026,m["dark wood"],root,20)
+        torus_mesh("Glazed crown of the copper lantern roof",(0,0,h+.465),.405,.024,m["accent"],root,16)
         shell("Pitched copper lantern roof",[(h+.405,.42,.42,0,0),(h+.475,.416,.416,0,0),
             (h+.645,.146,.146,0,0),(h+.68,.062,.062,0,0)],m["hem"],root,12)
         flame(glow,m,(0,0,0),"sea")
     else:
         stairs=ident=="sun_shrine"
+        if not stairs:
+            for i in range(8):
+                q=math.tau*i/8
+                block("Octagonal bastion buttress",(.391*math.cos(q),.375*math.sin(q),.387),
+                      (.158,.215,.307),m["foundation"],root,.033,q)
+                block("Red cap on a bastion buttress",(.391*math.cos(q),.375*math.sin(q),.539),
+                      (.185,.229,.080),m["accent"],root,.019,q)
+            shell("Cast brazier curb built into the bastion",[(.468,.459,.459,0,0),
+                  (.536,.467,.467,0,0),(.658,.419,.419,0,0)],m["hem"],root,8)
         for i in range(4 if stairs else 3):
             a=i*math.tau/(4 if stairs else 3)+.48
             t=(math.cos(a)*.308,math.sin(a)*.278,.234)
@@ -150,6 +205,10 @@ def brazier(data,root,m):
         if stairs:
             for z,w in ((.08,.71),(.16,.655),(.24,.603)):
                 block("Low offering stairs",(0,-.481-z*.20,z),(w,.371,.126),m["stone"],root,.028)
+            for x in (-.455,.455):
+                shell("Small carved flanking pillar",[(.236,.086,.084,x,-.247),(.58,.068,.066,x,-.247),
+                      (.626,.112,.101,x,-.247)],m["foundation"],root,8)
+                pin("Bronze votive disk",(x,-.320,.584),.057,m["gold"],root)
         flame(glow,m,(0,0,0),"sun")
     return turn,glow
 
@@ -172,10 +231,24 @@ def gateway(data,root,m):
             (.822,1.417),(.804,1.506),(.562,1.442),(-.562,1.442),(-.804,1.506)]
         silhouette("Outer upward-cut torii beam",curved,.251,m["hem"],root)
         block("Red inner torii lintel",(0,0,1.279),(1.466,.228,.130),m["accent"],root,.024)
+        for x in (-.676,.676):
+            block("Sculpted scarf joint under each roof tip",(x,-.012,1.292),(.184,.242,.081),m["fillet"],root,.019)
+        rope=[(-.44,-.136,1.148),(-.25,-.168,1.066),(0,-.178,1.045),(.25,-.167,1.074),(.44,-.136,1.148)]
+        for a,b in zip(rope,rope[1:]):
+            span("Braided sacred rope above the gate",a,b,.028,m["fabric"],root,7)
+        for i,x in enumerate((-.274,-.113,.113,.274)):
+            paper=silhouette("Folded cut-paper strip under the lintel",
+                 [(0,0),(.044,.008),(.061,-.051),(.033,-.095),(.059,-.167),(.020,-.166),
+                  (-.005,-.111),(.016,-.065),(-.013,-.019)],.013,m["fabric"],turn)
+            paper.location=(x,-.144,.103+abs(x)*.18)
+            paper.rotation_euler.y=.11*(i-1.5)
     else:
         for side in (-1,1):
             for y in (-.28,.30):
                 block("Square timber watchtower joist",(side*.397,y,.72),(.151,.15,.962),m["wood"],root,.022)
+            for y in (-.285,.30):
+                span("Diagonal cedar bracket below the deck",(side*.396,y,.592),(side*.164,y,.993),
+                     .063,m["dark wood"],root,7,.044)
         for side in (-1,1):
             for i in range(6):
                 x=(i-2.5)*.129
@@ -183,6 +256,7 @@ def gateway(data,root,m):
                     m["accent"] if i%2==0 else m["wood"],root,.017)
         block("Deck railing belt",(0,0,1.099),(1.049,.997,.100),m["dark wood"],root,.029)
         roof(root,.99,.87,1.325,.51,m)
+        roof(root,.53,.67,1.659,.29,m)
     block("Hanging lacquered plaque",(0,-.108,-.006),(.307,.081,.254),m["wood"],turn,.029)
     emblem("moon" if ident=="torii" else "sun",turn,0,-.159,-.003,.46,m)
     cut("Carved charm",charm,(0,0,-.01),(.086,.027,.176),m["light"],1)
@@ -204,6 +278,9 @@ def standard(data,root,m):
         shell("Cast weathered bell body",[(-.631,.356,.356,0,0),(-.557,.349,.349,0,0),(-.324,.277,.277,0,0),
             (-.121,.227,.227,0,0),(-.031,.151,.152,0,0)],m["gold"],turn,16)
         torus_mesh("Raised patina on the bell mouth",(0,0,-.605),.351,.033,m["accent"],turn,24)
+        for z,r in ((-.580,.347),(-.389,.293),(-.191,.253)):
+            torus_mesh("Pale cast ring of the bell relief",(0,0,z),r,.014,m["fillet"],turn,16,5)
+        emblem("flower",turn,0,-.309,-.421,.51,m)
         for i in range(7):
             a=i*math.tau/7
             pin("Cast nodule in the bell rim",(.324*math.cos(a),.324*math.sin(a),-.492),.035,m["hem"],turn)
@@ -217,6 +294,11 @@ def standard(data,root,m):
         fabric_panel("Folded decorated military standard",turn,.353,.324,.745,.06,.13,m,center=(0,-.016,.007),cascade=True)
         emblem("wing",turn,0,-.075,-.309,1.13,m)
         cut("Brass standard finial",(root),(0,0,1.78),(.17,.061,.084),m["gold"],1)
+        finial=silhouette("Twin swept wings on a field-standard finial",
+            [(-.289,.131),(-.149,.121),(-.044,.036),(0,.168),(.054,.058),(.163,.124),
+             (.289,.128),(.209,-.022),(.123,-.065),(0,-.045),(-.138,-.075),(-.220,-.020)],
+            .069,m["fillet"],root)
+        finial.location.z=1.803
         span("Small pennant",(-.28,-.036,-.073),(-.301,-.081,-.263),.030,m["fillet"],turn,7)
     return turn,charm
 
@@ -257,7 +339,7 @@ def animate(arm,weapon):
         track.mute=True
 
 
-def structure(data):
+def structure(data,output=None):
     clean()
     m=palette(data)
     root=empty("Fortification")
@@ -270,27 +352,32 @@ def structure(data):
         standard(data,root,m)
     else:
         brazier(data,root,m)
-    arm,skin=bake_skin(root,data)
+    arm,skin=bake_skin(root,data,textured_material=True)
     animate(arm,item in ("ballista","scorpio"))
-    scene,camera=studio((3.2,-5.4,3.55),(0,0,.84),330,370,2.52,samples=9,transparent=True)
+    scene,camera=studio((2.7,-5.8,3.13),(0,0,.84),410,460,2.52,samples=14,transparent=True)
     scene.render.fps=30
     scene.frame_set(1)
     select_export(arm,skin)
     for track in arm.animation_data.nla_tracks:
         track.mute=False
-    bpy.ops.export_scene.gltf(filepath=str(MODELS/f"{item}.glb"),export_format="GLB",use_selection=True,
+    models,sources,portraits=MODELS,SOURCES,PORTRAITS
+    if output:
+        models,sources,portraits=(output/name for name in ("models","blend","portraits"))
+        for path in (models,sources,portraits):
+            path.mkdir(parents=True,exist_ok=True)
+    bpy.ops.export_scene.gltf(filepath=str(models/f"{item}.glb"),export_format="GLB",use_selection=True,
         export_animation_mode="NLA_TRACKS",export_all_vertex_colors=False,export_lights=False,export_cameras=False)
     for track in arm.animation_data.nla_tracks:
         track.mute=track.name!="Idle"
-    bpy.ops.wm.save_as_mainfile(filepath=str(SOURCES/f"{item}.blend"),compress=True)
+    bpy.ops.wm.save_as_mainfile(filepath=str(sources/f"{item}.blend"),compress=True)
     scene.frame_set(15)
     scene.render.image_settings.file_format="PNG"
     scene.render.image_settings.color_mode="RGBA"
-    scene.render.filepath=str(PORTRAITS/f"{item}.png")
+    scene.render.filepath=str(portraits/f"{item}.png")
     bpy.ops.render.render(write_still=True)
 
 
-def projectile(name):
+def projectile(name,output=None):
     clean()
     root=empty("Formed projectile")
     colors={"bolt":("ebe1c6","a76547","aac2b8"),"spark":("ffdd91","e8a163","b38277"),
@@ -338,16 +425,24 @@ def projectile(name):
     bpy.ops.object.select_all(action="DESELECT")
     mesh.select_set(True)
     bpy.context.view_layer.objects.active=mesh
-    bpy.ops.export_scene.gltf(filepath=str(MODELS/f"fx_{name}.glb"),export_format="GLB",use_selection=True,
+    models,sources=MODELS,SOURCES
+    if output:
+        models,sources=(output/key for key in ("models","blend"))
+        for path in (models,sources):
+            path.mkdir(parents=True,exist_ok=True)
+    bpy.ops.export_scene.gltf(filepath=str(models/f"fx_{name}.glb"),export_format="GLB",use_selection=True,
         export_animations=False,export_all_vertex_colors=False)
-    bpy.ops.wm.save_as_mainfile(filepath=str(SOURCES/f"fx_{name}.blend"),compress=True)
+    bpy.ops.wm.save_as_mainfile(filepath=str(sources/f"fx_{name}.blend"),compress=True)
 
 
 if __name__=="__main__":
-    args=set(sys.argv[sys.argv.index("--")+1:]) if "--" in sys.argv else set()
+    cli=ArgumentParser(description=__doc__)
+    cli.add_argument("assets",nargs="*",metavar="ASSET")
+    cli.add_argument("--output",type=Path,metavar="DIRECTORY")
+    args=cli.parse_args(sys.argv[sys.argv.index("--")+1:] if "--" in sys.argv else [])
     for item in CATALOG["actors"]:
-        if item["kind"]=="building" and (not args or item["id"] in args):
-            structure(item)
+        if item["kind"]=="building" and (not args.assets or item["id"] in args.assets):
+            structure(item,args.output)
     for name in ("bolt","spark","frost","sun"):
-        if not args or f"fx_{name}" in args:
-            projectile(name)
+        if not args.assets or f"fx_{name}" in args.assets:
+            projectile(name,args.output)
