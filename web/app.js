@@ -52,6 +52,13 @@ let legendSignature = '';
 let lastPhase = '';
 let drawNoticeTimer;
 const recruitHighlights = new Map();
+// Local prediction: the browser runs the same simulation between server snapshots.
+let lastPacket = null;
+let authorityTick = -1;
+let predictRevision = -1;
+let predictionTimer = 0;
+let outbox = [];
+let sending = false;
 let waveRewardTimer;
 let dragStart = null;
 let suppressedClick=null;
@@ -335,6 +342,7 @@ async function startArena() {
     const renderer = await import(/* @vite-ignore */ wasmPath);
     await renderer.default();
     arena = renderer;
+    if (lastPacket && room?.id === lastPacket.id) feedPrediction(lastPacket);
     supplyArena();
     try { renderer.play_arena(handheld()); }
     catch (error) {
@@ -352,10 +360,16 @@ function supplyArena() {
   arenaUpdate = requestAnimationFrame(pushArena);
 }
 
+function predicting() {
+  return Boolean(arena?.predict_load && lastPacket && room?.id === lastPacket.id);
+}
+
 function pushArena() {
   arenaUpdate = 0;
   if (!arena || !room) return;
-  if (renderedGame !== room.game || renderedMove !== movePreview) {
+  if (predicting()) {
+    arena.set_viewer(room.viewer);
+  } else if (renderedGame !== room.game || renderedMove !== movePreview) {
     let game = room.game;
     const preview = movePreview;
     if (preview?.room === room.id && game.pieces.some(piece => piece.id === preview.id && piece.slot === preview.from)
@@ -377,10 +391,21 @@ function pushArena() {
   arena.set_board_focus(piece?.slot ?? -1, definition ? definition.range + (piece.rank - 1) * 0.23 + (piece.tier - 1) * 0.45 : 0);
 }
 
+function resetPrediction() {
+  lastPacket = null;
+  authorityTick = -1;
+  predictRevision = -1;
+  outbox = [];
+  clearInterval(predictionTimer);
+  predictionTimer = 0;
+}
+
 function openMatch(packet) {
   stopNetwork();
   clearDrag();
   movePreview = null;
+  resetPrediction();
+  arena?.close_board();
   room = null;
   selected = null;
   pending = null;
@@ -418,12 +443,14 @@ function openMatch(packet) {
   score(['won','lost'].includes(packet.game.phase) ? '' : packet.game.theme);
   void startArena();
   connectRoom(packet.id);
+  predictionTimer = setInterval(followPrediction, 100);
 }
 
 function leaveView() {
   stopNetwork();
   clearDrag();
   movePreview = null;
+  resetPrediction();
   arena?.close_board();
   room = null;
   renderedGame = null;
@@ -436,13 +463,43 @@ function leaveView() {
   void refreshAccount().then(recentRooms);
 }
 
+function feedPrediction(packet) {
+  const {rituals, ...state} = packet.game;
+  if (!arena.predict_load(packet.id, JSON.stringify(state), JSON.stringify(packet.acks ?? []))) return false;
+  return adoptPrediction();
+}
+
+function adoptPrediction() {
+  if (!arena?.predict_state || !room) return false;
+  predictRevision = arena.predict_revision();
+  const text = arena.predict_state();
+  if (!text) return false;
+  room = {...room, game: JSON.parse(text)};
+  return true;
+}
+
+function followPrediction() {
+  if (!predicting() || document.hidden) return;
+  if (arena.predict_revision() === predictRevision) return;
+  if (adoptPrediction()) refreshMatch(false);
+}
+
 function receive(packet, force = false) {
   if (!packet?.game) return;
   if (room && (packet.id !== room.id || packet.version < room.version
-    || (packet.version === room.version && packet.game.tick < room.game.tick))) return;
-  if (!force && room && room.version === packet.version && room.game.tick === packet.game.tick &&
+    || (packet.version === room.version && packet.game.tick < authorityTick))) return;
+  if (!force && room && room.version === packet.version && authorityTick === packet.game.tick &&
       room.joined === packet.joined && !packet.invite) return;
-  room = {...packet, invite:packet.invite ?? room?.invite};
+  const {rejected, ...served} = packet;
+  room = {...served, invite:packet.invite ?? room?.invite};
+  lastPacket = served;
+  authorityTick = packet.game.tick;
+  if (arena?.predict_load) feedPrediction(served);
+  refreshMatch(force);
+}
+
+function refreshMatch(quiet) {
+  if (!room) return;
   const game = room.game;
   if (pending?.type==='deploy' && !game.players[room.viewer].reserve?.some(recruit=>recruit.id===pending.id)) pending=null;
   if (selected && !game.pieces.some(piece => piece.id === selected)) {
@@ -461,7 +518,7 @@ function receive(packet, force = false) {
   for (const event of game.events) {
     if (recentEvents.has(event.id) || event.tick + 24 < game.tick) continue;
     recentEvents.add(event.id);
-    if (!force) battleSound(event);
+    if (!quiet) battleSound(event);
     if (event.kind==='oracle_miss') sceneNotice('Das Orakel hat keine Einheit beschworen.',1700);
     if (event.kind === 'boss_windup') sceneNotice('Schockwelle im markierten Bereich. Verschiebe deinen Trupp.', 1900);
     if (event.kind === 'boss') sceneNotice(`${enemies.get(event.actor)?.name ?? 'Boss'} nähert sich`, 2800);
@@ -748,31 +805,88 @@ function chooseReserve(recruit) {
   revealRecruit(recruit,'Feld wählen');
 }
 
+function revealDraws(order, before, result) {
+  if(!isCircuit(result.game) || !['recruit','recruit_many','oracle'].includes(order.type)) return;
+  const known=new Set(before.players[room.viewer].reserve?.map(r=>r.id)??[]);
+  const recruit=result.game.players[result.viewer].reserve.find(r=>!known.has(r.id));
+  const added = result.game.events.filter(event=>event.id>=before.next_id && ['draw','stack'].includes(event.kind))
+    .map(event=>({event,piece:result.game.pieces.find(piece=>piece.id===event.source && piece.owner===result.viewer)}))
+    .filter(({piece})=>piece);
+  for (const {piece} of added) markRecruit(piece.slot);
+  const latest = added.at(-1);
+  if (recruit) {
+    revealRecruit(recruit,'Reserve · kein Feld frei');
+  } else if (latest) {
+    const {piece,event} = latest;
+    revealRecruit(piece,event.kind==='stack' ? `${piece.stack}/3 im Trupp` : 'Auf dem Spielfeld');
+  }
+}
+
+// Commands run locally first. The server receives them in order and confirms them in the background.
 async function command(order, hint) {
+  if (!room) return false;
+  if (!predicting() || ['start','forfeit'].includes(order.type) || !['prep','combat'].includes(room.game.phase)) {
+    return confirmedCommand(order, hint);
+  }
+  const before=room.game;
+  const nonce=crypto.randomUUID();
+  let tick;
+  try { tick=arena.predict_apply(nonce, room.viewer, JSON.stringify(order)); }
+  catch (error) { toast(error?.message ?? String(error), true); return false; }
+  adoptPrediction();
+  const result={game:room.game, viewer:room.viewer};
+  revealDraws(order, before, result);
+  if(typeof hint==='function')hint(result);
+  refreshMatch(false);
+  outbox.push({command:order, nonce, tick:Math.round(tick)});
+  void sendOutbox(room.id);
+  return true;
+}
+
+async function sendOutbox(id, attempt = 0) {
+  if (sending || !outbox.length) return;
+  sending = true;
+  const batch = outbox.slice(0, 16);
+  let retry = false;
+  try {
+    const result = await request('action',{id, commands:batch});
+    outbox = outbox.filter(order => !batch.includes(order));
+    if (room?.id !== id) return;
+    for (const miss of result.rejected ?? []) {
+      arena?.predict_drop(miss.nonce);
+      toast(miss.error, true);
+    }
+    receive(result);
+  } catch (error) {
+    retry = attempt < 2 && (!error.status || error.status === 409 || error.status >= 500);
+    if (!retry) {
+      outbox = outbox.filter(order => !batch.includes(order));
+      if (room?.id === id) {
+        for (const order of batch) arena?.predict_drop(order.nonce);
+        if (adoptPrediction()) refreshMatch(true);
+        toast(error.message, true);
+      }
+    }
+  } finally {
+    sending = false;
+    if (room?.id === id && outbox.length) {
+      if (retry) setTimeout(() => void sendOutbox(id, attempt + 1), 350 * (attempt + 1));
+      else void sendOutbox(id);
+    }
+  }
+}
+
+async function confirmedCommand(order, hint) {
   if (locked || !room) return false;
   locked=true;
   paintOrders();
   try {
     const id=room.id;
-    const before=new Set(room.game.players[room.viewer].reserve?.map(r=>r.id)??[]);
-    const firstNewId=room.game.next_id;
+    const before=room.game;
     const result=await request('action',{id,nonce:crypto.randomUUID(),command:order});
     if(room?.id!==id)return false;
     receive(result);
-    if(isCircuit(result.game) && ['recruit','recruit_many','oracle'].includes(order.type)) {
-      const recruit=result.game.players[result.viewer].reserve.find(r=>!before.has(r.id));
-      const added = result.game.events.filter(event=>event.id>=firstNewId && ['draw','stack'].includes(event.kind))
-        .map(event=>({event,piece:result.game.pieces.find(piece=>piece.id===event.source && piece.owner===result.viewer)}))
-        .filter(({piece})=>piece);
-      for (const {piece} of added) markRecruit(piece.slot);
-      const latest = added.at(-1);
-      if (recruit) {
-        revealRecruit(recruit,'Reserve · kein Feld frei');
-      } else if (latest) {
-        const {piece,event} = latest;
-        revealRecruit(piece,event.kind==='stack' ? `${piece.stack}/3 im Trupp` : 'Auf dem Spielfeld');
-      }
-    }
+    revealDraws(order, before, result);
     if(typeof hint==='function')hint(result);
     paintMatch();
     supplyArena();
@@ -824,7 +938,7 @@ async function movePiece(id,slot) {
   const piece=room.game.pieces.find(item=>item.owner===room.viewer && item.id===id);
   const destination=room.game.pieces.find(item=>item.slot===slot);
   if(!canMoveTo(piece,slot,destination)) return;
-  if (!destination || !matchesTroop(piece,destination)) {
+  if (!predicting() && (!destination || !matchesTroop(piece,destination))) {
     movePreview={room:room.id,id,from:piece.slot,to:slot,other:destination?.id};
     supplyArena();
   }

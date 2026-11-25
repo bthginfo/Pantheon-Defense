@@ -1548,6 +1548,25 @@ impl Game {
 }
 
 #[cfg(target_arch = "wasm32")]
+#[derive(Serialize)]
+struct GameSnapshot<'a> {
+    #[serde(flatten)]
+    game: &'a Game,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    rituals: Vec<circuit::RitualReport<'static>>,
+}
+
+/// Serializes a game together with the hero ritual reports the interface shows.
+#[cfg(target_arch = "wasm32")]
+pub fn snapshot_json(game: &Game) -> Result<String, String> {
+    serde_json::to_string(&GameSnapshot {
+        game,
+        rituals: game.ritual_reports(),
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
 mod wasm {
     use super::*;
     use wasm_bindgen::prelude::*;
@@ -1556,19 +1575,8 @@ mod wasm {
         serde_json::to_string(value).map_err(|e| JsError::new(&e.to_string()))
     }
 
-    #[derive(Serialize)]
-    struct GameSnapshot<'a> {
-        #[serde(flatten)]
-        game: &'a Game,
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        rituals: Vec<circuit::RitualReport<'static>>,
-    }
-
     fn encode_game(game: &Game) -> Result<String, JsError> {
-        encode(&GameSnapshot {
-            game,
-            rituals: game.ritual_reports(),
-        })
+        snapshot_json(game).map_err(|e| JsError::new(&e))
     }
 
     #[wasm_bindgen]

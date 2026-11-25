@@ -26,6 +26,7 @@ use wasm_bindgen::prelude::*;
 mod circuit_art;
 mod combat_fx;
 mod crowd;
+mod predict;
 mod scenery;
 use combat_fx::{CombatFx, WeaponLook};
 use scenery::{Palette, Scenery};
@@ -122,12 +123,17 @@ pub fn set_room_state(room: &str, state: &str) -> bool {
 
 #[wasm_bindgen]
 pub fn close_board() {
+    predict::reset();
     MAIL.with(|mail| {
         let mut mail = mail.borrow_mut();
         mail.game = None;
         mail.viewing = false;
         mail.layout_dirty = true;
     });
+}
+
+fn show_board() {
+    MAIL.with(|mail| mail.borrow_mut().viewing = true);
 }
 
 #[wasm_bindgen]
@@ -452,7 +458,10 @@ fn pull_game(
     shared: Res<Shared>,
     time: Res<Time<Real>>,
 ) {
-    let Some((room, game)) = MAIL.with(|mail| mail.borrow_mut().game.take()) else {
+    let Some((room, game)) = MAIL
+        .with(|mail| mail.borrow_mut().game.take())
+        .or_else(predict::frame)
+    else {
         return;
     };
     let now = time.elapsed_secs_f64();

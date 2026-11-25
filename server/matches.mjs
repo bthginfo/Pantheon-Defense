@@ -25,10 +25,12 @@ function playerIndex(room, handle) {
   throw new HttpError(403, 'Dein Konto ist für diese Partie nicht eingeladen.');
 }
 
-function advance(room, now) {
+// `untilTick` lets a command land on the tick at which the player's browser applied it.
+function advance(room, now, untilTick) {
   if (!active(room.game)) return room;
   const end = Math.min(now, room.liveUntil);
-  const elapsed = Math.max(0, Math.floor((end - room.clockMs) / 50));
+  let elapsed = Math.max(0, Math.floor((end - room.clockMs) / 50));
+  if (Number.isSafeInteger(untilTick)) elapsed = Math.min(elapsed, Math.max(0, untilTick - room.game.tick));
   if (!elapsed) return room;
   let game = room.game;
   let ticks = elapsed;
@@ -43,9 +45,11 @@ function advance(room, now) {
 function visible(room, handle) {
   const game = (room.game.rule_version ?? 1) >= 2 && active(room.game) && !room.game.rituals
     ? JSON.parse(core.advance_game(JSON.stringify(room.game), 0)) : room.game;
+  const viewer = playerIndex(room, handle);
+  const acks = (room.receipts ?? []).filter(receipt => receipt.startsWith(`${viewer}:`)).slice(-32).map(receipt => receipt.slice(2));
   return {
     id: room.id, host: room.host, guest: room.guest, joined: room.joined,
-    viewer: playerIndex(room, handle), game, version: room.version,
+    viewer, game, version: room.version, acks,
   };
 }
 
@@ -182,37 +186,59 @@ export async function board(handle, id) {
   return visible(room, handle);
 }
 
+const nonceFormat = /^[a-f0-9-]{36}$/;
+
+function readOrders(data) {
+  const batch = Array.isArray(data.commands);
+  const orders = batch ? data.commands : [{ command: data.command, nonce: data.nonce, tick: data.tick }];
+  if (!orders.length || orders.length > 16) throw new HttpError(400, 'Die Aktion ist ungültig.');
+  for (const order of orders) {
+    if (!order?.command || typeof order.command.type !== 'string' || !nonceFormat.test(order.nonce ?? '')
+        || (order.tick !== undefined && !Number.isSafeInteger(order.tick))) {
+      throw new HttpError(400, 'Die Aktion ist ungültig.');
+    }
+  }
+  return { batch, orders };
+}
+
 export async function act(handle, id, data) {
   if (!roomId.test(id ?? '')) throw new HttpError(404, 'Diese Partie gibt es nicht.');
-  const command = data.command;
-  const nonce = data.nonce;
-  if (!command || typeof command.type !== 'string' || !/^[a-f0-9-]{36}$/.test(nonce ?? '')) {
-    throw new HttpError(400, 'Die Aktion ist ungültig.');
-  }
+  const { batch, orders } = readOrders(data);
+  let rejected = [];
   const room = await mutate(key(id), saved => {
     if (!saved) throw new HttpError(404, 'Diese Partie gibt es nicht.');
+    rejected = [];
     const player = playerIndex(saved, handle);
-    const receipt = `${player}:${nonce}`;
-    if (saved.receipts.includes(receipt)) return undefined;
-    if (command.type === 'start' && saved.guest && !saved.joined) {
-      throw new HttpError(409, 'Dein Mitspieler ist noch nicht beigetreten.');
-    }
     const now = Date.now();
-    const projected = advance(saved, now);
-    let game;
-    try {
-      game = JSON.parse(core.apply_action(JSON.stringify(projected.game), player, JSON.stringify(command)));
-    } catch (error) {
-      const message = error.message.startsWith('invalid ') || error.message.includes('unknown variant')
-        ? 'Diese Aktion konnte nicht gelesen werden.' : error.message;
-      throw new HttpError(409, message);
+    let projected = saved;
+    let receipts = saved.receipts;
+    let changed = false;
+    for (const { command, nonce, tick } of orders) {
+      const receipt = `${player}:${nonce}`;
+      if (receipts.includes(receipt)) continue;
+      receipts = [...receipts.slice(-95), receipt];
+      changed = true;
+      if (command.type === 'start' && saved.guest && !saved.joined) {
+        if (!batch) throw new HttpError(409, 'Dein Mitspieler ist noch nicht beigetreten.');
+        rejected.push({ nonce, error: 'Dein Mitspieler ist noch nicht beigetreten.' });
+        continue;
+      }
+      projected = advance(projected, now, tick);
+      try {
+        projected = { ...projected, game: JSON.parse(core.apply_action(JSON.stringify(projected.game), player, JSON.stringify(command))) };
+      } catch (error) {
+        const message = error.message.startsWith('invalid ') || error.message.includes('unknown variant')
+          ? 'Diese Aktion konnte nicht gelesen werden.' : error.message;
+        if (!batch) throw new HttpError(409, message);
+        rejected.push({ nonce, error: message });
+      }
     }
-    return { ...projected, game, clockMs: (saved.game.phase === 'lobby' || now > saved.liveUntil) ? now : projected.clockMs,
-      liveUntil: now + 35_000, lastWrite: now, version: saved.version + 1,
-      receipts: [...saved.receipts.slice(-95), receipt] };
+    if (!changed) return undefined;
+    return { ...projected, clockMs: (saved.game.phase === 'lobby' || now > saved.liveUntil) ? now : projected.clockMs,
+      liveUntil: now + 35_000, lastWrite: now, version: saved.version + 1, receipts };
   });
   await award(room);
-  return visible(room, handle);
+  return { ...visible(room, handle), ...(batch && { rejected }) };
 }
 
 export async function matchList(handle) {
