@@ -1106,9 +1106,10 @@ impl Game {
             let rank = self
                 .difficulty_config()
                 .map_or(0, |stage| u16::from(stage.rank));
-            return (7 + u16::from(self.wave / 2) + if self.players.len() == 2 { 4 } else { 0 })
-                .min(18)
-                + rank / 2;
+            // A steady stream keeps the route busy for most of each wave.
+            return (14 + u16::from(self.wave) * 3 / 4 + if self.players.len() == 2 { 7 } else { 0 })
+                .min(42)
+                + rank;
         }
         let base = 7 + u16::from(self.wave) * 2;
         (if self.players.len() == 2 {
@@ -1121,7 +1122,8 @@ impl Game {
 
     fn spawn_wave(&mut self) {
         let interval = if self.on_circuit() {
-            if self.challenge == "rush" { 10 } else { 13 }
+            let stream = self.wave_duration() * 7 / 10 / u64::from(self.wave_size().max(1));
+            stream.clamp(5, if self.challenge == "rush" { 10 } else { 13 })
         } else if self.challenge == "rush" {
             10
         } else {
@@ -1165,9 +1167,10 @@ impl Game {
             (usize::from(self.spawned) + usize::from(self.wave)) % 2
         };
         let def = enemy_kind(kind);
-        let growth = 1. + f32::from(self.wave - 1) * if self.on_circuit() { 0.106 } else { 0.095 };
+        let growth = 1. + f32::from(self.wave - 1) * if self.on_circuit() { 0.118 } else { 0.095 };
+        // Circuit waves send about twice as many enemies, each with a little over half the health.
         let team_scale = if self.on_circuit() {
-            if self.players.len() == 2 { 1.28 } else { 0.77 }
+            (if self.players.len() == 2 { 1.28 } else { 0.77 }) * if boss { 1. } else { 0.95 }
         } else if self.players.len() == 2 {
             1.12
         } else {
@@ -1524,7 +1527,7 @@ impl Game {
         for (id, kind, pos) in dead {
             self.kills += 1;
             let shared = if self.on_circuit() {
-                if self.players.len() == 2 { 3 } else { 6 }
+                if self.players.len() == 2 { 2 } else { 4 }
             } else if self.players.len() == 2 {
                 6
             } else {

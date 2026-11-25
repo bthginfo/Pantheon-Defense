@@ -55,7 +55,7 @@ test('the three Blender arenas ship as vertex-lit static meshes', () => {
 
 test('mobile models reduce the geometry budget and preserve paint and animation bindings', () => {
   const variants = readFileSync(new URL('models.txt', mobileAssets), 'utf8').trim().split('\n');
-  for (const { id } of catalog.themes) assert.ok(variants.includes(`arena_${id}`));
+  for (const { id } of catalog.themes) assert.ok(!variants.includes(`arena_${id}`), `${id}: boards keep their full export on phones`);
   const mesh = glb => glb.meshes[0].primitives[0];
   const indices = glb => glb.accessors[mesh(glb).indices].count;
   const clips = glb => glb.animations?.map(clip => clip.name).sort() ?? [];
@@ -85,7 +85,8 @@ test('the campaign introduces regional formations and each difficulty has its ow
     let previousTime = Infinity;
     for (const stage of catalog.difficulties) {
       const game = state(region.id,stage.id);
-      const finalSpawn = 17 + Math.floor(stage.rank / 2);
+      // The boss is the last enemy of the final wave.
+      const finalSpawn = Math.min(14 + Math.floor(game.wave_limit * 3 / 4), 42) + stage.rank - 1;
       const boss = spawn(game, game.wave_limit, finalSpawn);
       assert.equal(boss.kind, region.boss_pack[stage.rank]);
       assert.ok(boss.hp > previousHealth);
