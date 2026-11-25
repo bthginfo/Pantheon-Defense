@@ -5,6 +5,10 @@ Eisen, bemaltes Holz, Leder und Stoff haben gerichtete Pinselspuren und eigene
 Materialeigenschaften. Truppen und Helden haben regional geschnittene Kleidung
 und eine eigene Ausstattung. [Freigegebene Stilreferenz](../../references/thekla-handpainted-poly-referenz.png)
 
+Truppen und Helden haben kompakte Proportionen mit größerem Kopf und kürzeren
+Beinen, damit sie auf dem Handy auf einen Blick lesbar bleiben. Truppen tragen
+ihre Katalogfarbe als Stofffarbe. Thekla und Marcus behalten ihre eigene Anatomie.
+
 | Schauplatz | Truppen, Helden und Gebäude | Formationen und Endbosse |
 | --- | --- | --- |
 | Tor der Ägäis | [Kader der Ägäis](aegean-kader.webp) | [Gegner der Ägäis](aegean-gegner.webp) |

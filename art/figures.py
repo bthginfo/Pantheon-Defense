@@ -75,8 +75,46 @@ WARDROBE = {
 }
 
 
+# Phone-scale proportions: a larger head and shorter legs keep each unit readable at a glance.
+HEAD_SCALE = 1.5
+LEG_SCALE = .78
+
+
+def vivid(hex_color, saturation=1.28, value=1.06):
+    """Strengthens a textile colour so units read clearly on a small screen."""
+    from colorsys import hsv_to_rgb, rgb_to_hsv
+    r,g,b=(int(hex_color[i:i+2],16)/255 for i in (0,2,4))
+    h,sat,val=rgb_to_hsv(r,g,b)
+    r,g,b=hsv_to_rgb(h,min(1.,sat*saturation),min(1.,val*value))
+    return "".join(f"{round(c*255):02x}" for c in (r,g,b))
+
+
+def mix(hex_color, other, amount):
+    a=[int(hex_color[i:i+2],16) for i in (0,2,4)]
+    b=[int(other[i:i+2],16) for i in (0,2,4)]
+    return "".join(f"{round(x+(y-x)*amount):02x}" for x,y in zip(a,b))
+
+
+def dyed_profile(item, colour):
+    """Registers a brush profile that keeps the unit's signature colour in shadow and glaze."""
+    from commander_finish import SURFACES
+    from commander_paint import PROFILES
+    from forge import rgba
+    name=f"dyed {item['id']}"
+    PROFILES[name]=(rgba(mix(colour,"1d2234",.64)),rgba(mix(colour,"fff3d6",.46)),.74)
+    SURFACES[name]=SURFACES["teal"]
+    return name
+
+
 def mat_set(item, colors):
     armor,_,fabric,trim,_=colors
+    # Troops wear the signature colour that also marks them in the interface.
+    signature=item.get("color","").lstrip("#")
+    if item["kind"]=="troop" and len(signature)==6:
+        fabric=vivid(signature,1.42,1.0)
+    else:
+        fabric=vivid(fabric)
+    trim=vivid(trim,1.34,1.08)
     faction=item["theme"]
     rng=Random(item["id"]+" complexion")
     skin=rng.choice(("c99670","c88965","ae7857","e0ae8b","ad7559","d79e80"))
@@ -109,7 +147,8 @@ def mat_set(item, colors):
         materials.update(body=material("Weathered bronze skin","a18456",.38),
                          patina=material("Verdigris on the guardian's brow","5b887e",.13))
     pigments={
-        "fabric":"linen" if armor in ("linen","tunic","travel") else "teal",
+        "fabric":dyed_profile(item,fabric) if item["kind"]=="troop" else
+                 "linen" if armor in ("linen","tunic","travel") else "teal",
         "accent":"teal","hem":"teal lining","belt":"hide dark",
         "leather":"hide","boots":"hide dark","gold":"bronze","fillet":"brass",
         "steel":"iron edge","dark iron":"iron","antique white":"linen light",
@@ -805,13 +844,13 @@ def humanoid(item):
     if ident=="thekla":
         wide *= .961
     root=empty("Figure")
-    root.scale=(1.0 if hero else .91,)*3
-    body_height=.945 if shape!="titan" else .987
+    root.scale=(1.04 if hero else .97,)*3
+    body_height=(.945 if shape!="titan" else .987)*LEG_SCALE
     body=empty("Body",(0,.009,body_height),root)
     body.scale=(.86,.87,1.)
     shoulder=.266*wide
-    head=empty("Head",(0,-.018,.457),body)
-    head.scale=((.603 if hero else .586)+rng.uniform(-.016,.014),)*3
+    head=empty("Head",(0,-.018,.457+.11*(HEAD_SCALE-1)),body)
+    head.scale=(((.603 if hero else .586)+rng.uniform(-.016,.014))*HEAD_SCALE,)*3
     shell("Soft neck above the collar",[(.400,.081,.070,0,.001),(.457,.062,.063,0,-.010),
           (.493,.063,.058,0,-.014)],m["body"],body,10,True)
     mantle=empty("Mantle",(0,.149,.391),body)
