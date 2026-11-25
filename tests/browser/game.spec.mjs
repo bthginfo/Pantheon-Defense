@@ -197,7 +197,10 @@ test('an invitation grants only the chosen account and both browsers see the sam
     // Free the host's software renderer before verifying timed waves in the guest.
     await host.goto('/');
     await expect(guest.locator('#wave')).toHaveText(/^[1-9]\d* \/ 30$/,{timeout:30_000});
-    expect((await matchAction(hostContext,id,{type:'forfeit'})).status()).toBe(200);
+    // Without defenders the stream can end the match first; then the server refuses the forfeit.
+    const forfeit = await matchAction(hostContext,id,{type:'forfeit'});
+    const phase = (await (await api(hostContext,'board',undefined,{id})).json()).game.phase;
+    expect(forfeit.status() === 200 || (forfeit.status() === 409 && phase === 'lost')).toBe(true);
     await expect(guest.getByRole('heading',{name:'Die Bastion ist gefallen'})).toBeVisible({timeout:20_000});
   } finally {
     await Promise.all([hostContext.close(),guestContext.close(),otherContext.close()]);
