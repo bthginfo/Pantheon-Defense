@@ -23,9 +23,11 @@ Rom und Japan bringen 36 Truppen, 24 Helden und neun Gebäude aufs Brett.
    gewählten Bauplatz. Unter **Helden** siehst du, wer beschwörbar ist und
    welche Einheiten noch fehlen. Eine Beschwörung kostet Gold und verbraucht
    die Einheiten des Rezepts. Im Kampf setzt du die Fähigkeiten deiner Helden ein.
-5. Wellen wechseln nach Zeit. Gegner bleiben auf dem Rundkurs, bis sie besiegt
-   sind. Der gemeinsame Gegnerzähler und die Bossfristen entscheiden über den
-   Ausgang. Gold, Essenz, Orakel und Schmiede helfen dir beim Ausbau.
+5. Wellen wechseln nach Zeit. Gegner laufen in einem stetigen Strom ein und bleiben
+   auf dem Rundkurs, bis sie besiegt sind. Jede sechste Welle ist eine Bosswelle mit
+   kleiner Eskorte; der Boss bringt dafür mehr Gold. Der gemeinsame Gegnerzähler und
+   die Bossfristen entscheiden über den Ausgang. Gold, Essenz, Orakel und Schmiede
+   helfen dir beim Ausbau.
 6. Nach jeder überstandenen Welle bekommst du Gold und Wellenbeute. Essenz fällt
    in bestimmten Wellen an. In der Sammlung steigern Trainingsmarken Truppen,
    Baupläne Gebäude und Heldensplitter Helden bis Meisterschaft 3. Siegel lassen

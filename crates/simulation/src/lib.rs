@@ -1107,9 +1107,16 @@ impl Game {
                 .difficulty_config()
                 .map_or(0, |stage| u16::from(stage.rank));
             // A steady stream keeps the route busy for most of each wave.
-            return (14 + u16::from(self.wave) * 3 / 4 + if self.players.len() == 2 { 7 } else { 0 })
-                .min(42)
-                + rank;
+            let stream = (14 + u16::from(self.wave) * 3 / 4
+                + if self.players.len() == 2 { 7 } else { 0 })
+            .min(42);
+            // Boss waves send a small escort so the fight centres on the boss.
+            let size = if self.boss_wave() {
+                (stream / 3).max(6)
+            } else {
+                stream
+            };
+            return size + rank;
         }
         let base = 7 + u16::from(self.wave) * 2;
         (if self.players.len() == 2 {
@@ -1118,6 +1125,13 @@ impl Game {
             base
         })
         .min(44)
+    }
+
+    fn boss_wave(&self) -> bool {
+        self.wave == self.wave_limit
+            || self.wave % if self.on_circuit() { 6 } else { 4 } == 0
+            || (self.challenge == "siege" && self.wave % 2 == 0)
+            || (self.challenge == "duelist" && self.wave % 3 == 0)
     }
 
     fn spawn_wave(&mut self) {
@@ -1134,11 +1148,7 @@ impl Game {
         }
         self.spawned += 1;
         let last = self.spawned == self.wave_size();
-        let boss = last
-            && (self.wave == self.wave_limit
-                || self.wave % if self.on_circuit() { 6 } else { 4 } == 0
-                || (self.challenge == "siege" && self.wave % 2 == 0)
-                || (self.challenge == "duelist" && self.wave % 3 == 0));
+        let boss = last && self.boss_wave();
         let kind = if boss {
             if self.wave == self.wave_limit {
                 "titan"
@@ -1167,7 +1177,20 @@ impl Game {
             (usize::from(self.spawned) + usize::from(self.wave)) % 2
         };
         let def = enemy_kind(kind);
-        let growth = 1. + f32::from(self.wave - 1) * if self.on_circuit() { 0.118 } else { 0.095 };
+        // Circuit waves start sturdier so the first minutes already build a crowd on the route.
+        // The opening boost fades out by wave ten and is smaller on the harder stages.
+        // Bosses keep their original curve, because their deadline is already the challenge.
+        let growth = if self.on_circuit() && boss {
+            1. + f32::from(self.wave - 1) * 0.118
+        } else if self.on_circuit() {
+            let rank = self.difficulty_config().map_or(0., |stage| f32::from(stage.rank));
+            let opening = 1.15
+                * (1. - rank * 0.62).max(0.)
+                * (f32::from(10u8.saturating_sub(self.wave)) / 9.);
+            (1.22 + f32::from(self.wave - 1) * 0.11) * (1. + opening)
+        } else {
+            1. + f32::from(self.wave - 1) * 0.095
+        };
         // Circuit waves send about twice as many enemies, each with a little over half the health.
         let team_scale = if self.on_circuit() {
             (if self.players.len() == 2 { 1.28 } else { 0.77 }) * if boss { 1. } else { 0.95 }
@@ -1534,7 +1557,12 @@ impl Game {
                 12
             };
             let boss = enemy_kind(&kind).is_boss();
-            let reward = if boss { 55 } else { shared };
+            // Boss waves send few escorts, so the boss itself carries the wave's income.
+            let reward = if boss {
+                if on_circuit { 110 } else { 55 }
+            } else {
+                shared
+            };
             for player in &mut self.players {
                 if on_circuit && boss {
                     player.essence += 3;

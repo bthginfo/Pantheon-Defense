@@ -86,7 +86,7 @@ test('the campaign introduces regional formations and each difficulty has its ow
     for (const stage of catalog.difficulties) {
       const game = state(region.id,stage.id);
       // The boss is the last enemy of the final wave.
-      const finalSpawn = Math.min(14 + Math.floor(game.wave_limit * 3 / 4), 42) + stage.rank - 1;
+      const finalSpawn = Math.max(6, Math.floor(Math.min(14 + Math.floor(game.wave_limit * 3 / 4), 42) / 3)) + stage.rank - 1;
       const boss = spawn(game, game.wave_limit, finalSpawn);
       assert.equal(boss.kind, region.boss_pack[stage.rank]);
       assert.ok(boss.hp > previousHealth);
