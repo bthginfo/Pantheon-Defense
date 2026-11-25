@@ -116,7 +116,7 @@ pub fn footwork(
     figure: Entity,
     height: f32,
     size: Vec2,
-    camp: Option<usize>,
+    ring: Option<Handle<StandardMaterial>>,
 ) {
     let local = Transform::from_xyz(0.091, height, 0.018).with_scale(Vec3::new(size.x, 1., size.y));
     commands.entity(figure).with_children(|children| {
@@ -126,12 +126,12 @@ pub fn footwork(
             local,
             NotShadowCaster,
         ));
-        if let Some(camp) = camp {
+        if let Some(ring) = ring {
             children.spawn((
                 Mesh3d(shared.line.clone()),
-                MeshMaterial3d(shared.team[camp].clone()),
+                MeshMaterial3d(ring),
                 Transform::from_xyz(0., height + 0.003, 0.)
-                    .with_scale(Vec3::new(0.405, 0.021, 0.312)),
+                    .with_scale(Vec3::new(0.46, 0.03, 0.36)),
                 NotShadowCaster,
             ));
         }

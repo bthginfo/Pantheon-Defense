@@ -1,4 +1,5 @@
 #import bevy_pbr::mesh_functions::{get_world_from_local, mesh_position_local_to_clip, mesh_normal_local_to_world, get_tag}
+#import bevy_pbr::mesh_view_bindings::view
 
 @group(2) @binding(0) var poses: texture_2d<f32>;
 @group(2) @binding(1) var paint: texture_2d<f32>;
@@ -51,12 +52,15 @@ fn vertex(input: Vertex) -> Surface {
     let sun = max(0.0,dot(n,vec3<f32>(-0.40,0.74,0.54)));
     let fill = max(0.0,dot(n,vec3<f32>(0.67,0.57,-0.48)));
     let sky = clamp(n.y * 0.23 + 0.12,0.0,0.35);
+    // A warm rim separates figures from the pale stone of the board.
+    let toward_camera = normalize(view.world_from_view[2].xyz);
+    let rim = pow(1.0 - clamp(dot(n,toward_camera),0.0,1.0),2.4);
     var result: Surface;
     result.clip = mesh_position_local_to_clip(get_world_from_local(input.instance),vec4<f32>(position,1.0));
     result.uv = input.uv;
     result.pigment = input.pigment.rgb;
-    result.lighting = vec3<f32>(0.53,0.55,0.59) + vec3<f32>(1.0,0.84,0.62)*sun*0.85
-        + vec3<f32>(0.33,0.50,0.67)*(fill*0.23+sky);
+    result.lighting = vec3<f32>(0.49,0.51,0.56) + vec3<f32>(1.0,0.84,0.62)*sun*0.93
+        + vec3<f32>(0.33,0.50,0.67)*(fill*0.23+sky) + vec3<f32>(1.0,0.86,0.64)*rim*0.38;
     return result;
 }
 

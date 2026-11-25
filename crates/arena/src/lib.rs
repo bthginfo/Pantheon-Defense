@@ -330,6 +330,10 @@ struct Shared {
     rays: [Handle<StandardMaterial>; 6],
     ring: Handle<StandardMaterial>,
     team: [Handle<StandardMaterial>; 2],
+    /// Ground rings in the rarity colours of the interface, common to legendary.
+    rarity: [Handle<StandardMaterial>; 5],
+    /// Translucent ground discs under uncommon and rarer units.
+    aura: [Handle<StandardMaterial>; 5],
     shadow: circuit_art::ContactShadow,
 }
 
@@ -383,6 +387,29 @@ fn setup(
         }),
         team: [Color::srgb(0.28, 0.86, 0.83), Color::srgb(0.96, 0.53, 0.39)]
             .map(|color| mats.add(simple(color, 0.28))),
+        rarity: [
+            (0xdad8c0, 0.18),
+            (0x9de5a2, 0.42),
+            (0x8cdbff, 0.55),
+            (0xe3b1ff, 0.75),
+            (0xffcf76, 1.0),
+        ]
+        .map(|(int, glow)| {
+            let color = Color::srgb_u8((int >> 16) as u8, (int >> 8) as u8, int as u8);
+            mats.add(StandardMaterial {
+                unlit: true,
+                ..simple(color, glow)
+            })
+        }),
+        aura: [0xdad8c0, 0x9de5a2, 0x8cdbff, 0xe3b1ff, 0xffcf76].map(|int| {
+            let color = Color::srgb_u8((int >> 16) as u8, (int >> 8) as u8, int as u8);
+            mats.add(StandardMaterial {
+                base_color: color.with_alpha(0.34),
+                alpha_mode: AlphaMode::Blend,
+                unlit: true,
+                ..default()
+            })
+        }),
         shadow: circuit_art::ContactShadow::new(&mut meshes, &mut mats),
     };
 
@@ -619,13 +646,34 @@ fn pull_game(
                     }
                 });
             if game.on_circuit() {
+                let kind = sim::actor(&piece.actor).map(|actor| actor.kind.as_str());
+                let rank = match kind {
+                    Some("hero") => 5,
+                    _ => usize::from(piece.tier.clamp(1, 5)),
+                };
+                let ring = if kind == Some("building") {
+                    shared.team[piece.owner].clone()
+                } else {
+                    shared.rarity[rank - 1].clone()
+                };
+                if kind != Some("building") && rank > 1 {
+                    commands.entity(entity).with_children(|parent| {
+                        parent.spawn((
+                            Mesh3d(shared.disk.clone()),
+                            MeshMaterial3d(shared.aura[rank - 1].clone()),
+                            Transform::from_xyz(0., -0.012, 0.)
+                                .with_scale(Vec3::new(0.5, 0.004, 0.4)),
+                            NotShadowCaster,
+                        ));
+                    });
+                }
                 circuit_art::footwork(
                     &mut commands,
                     &shared,
                     entity,
                     -0.019,
                     Vec2::new(0.64, 0.40),
-                    Some(piece.owner),
+                    Some(ring),
                 );
             } else {
                 commands.entity(entity).with_children(|parent| {
@@ -971,9 +1019,9 @@ fn spawn_figure(
     let size = if arena.rule_version >= sim::CIRCUIT_RULES {
         match sim::actor(id).map(|actor| actor.kind.as_str()) {
             Some("building") => 1.12,
-            Some("hero") => 1.72,
+            Some("hero") => 1.95,
             _ if enemy => 1.42,
-            _ => 1.55,
+            _ => 1.78,
         }
     } else {
         1.0
