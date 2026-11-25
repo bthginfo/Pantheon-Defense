@@ -89,8 +89,10 @@ Lokal speichert der Server
 Konten und Partien in `.cache/pantheon.sqlite`. Auf Vercel verwendet er
 `DATABASE_URL` für PostgreSQL oder einen privaten, mit dem Projekt
 verbundenen Vercel-Blob-Speicher. Alle Zugriffe auf Spielstände laufen serverseitig.
-Der Browser sendet Eingaben und rendert die vom Rust-Kern berechneten
-Spielstände. Derselbe Zustand lässt sich nach einer unterbrochenen Verbindung wieder laden.
+Der Server bleibt maßgeblich. Der Browser rechnet dieselbe Rust-Simulation zwischen
+den Serverständen mit 20 Takten pro Sekunde voraus und wendet eigene Befehle sofort an.
+Er schickt sie gebündelt mit dem Takt, an dem sie gelten, und der Server bestätigt sie.
+Derselbe Zustand lässt sich nach einer unterbrochenen Verbindung wieder laden.
 
 ## Grafik und Blender-Quellen
 
@@ -101,8 +103,10 @@ Kontaktschatten in ein Mesh exportiert. Truppen, Helden, Gegner und Gebäude
 verwenden Armaturen. Studiolichter und Kameras gehören zu den Blender-Szenen
 und werden für die Porträts verwendet.
 
-Die Handyansicht lädt vereinfachte 3D-Meshes aus denselben Blender-Exporten.
-Gleiche Figuren teilen sich Mesh, Bemalung und vorberechnete Gelenkposen.
+Die Handyansicht lädt die Arenen in voller Auflösung und vereinfachte Figuren aus
+denselben Blender-Exporten. Gleiche Figuren teilen sich Mesh, Bemalung und
+vorberechnete Gelenkposen. Truppen tragen ihre Katalogfarbe als Stofffarbe und
+haben kompakte Proportionen, damit sie auf dem Handy auf einen Blick lesbar sind.
 `npm run art:mobile` aktualisiert die vereinfachten GLB-Dateien und die
 Bevy-Pakete mit diesen Posen. `npm run art:poses` baut nur die Bevy-Pakete.
 
