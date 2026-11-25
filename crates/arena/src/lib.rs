@@ -88,6 +88,7 @@ pub fn play_arena(mobile: bool) {
                 pull_game,
                 orient_camera,
                 animate_figures,
+                draw_health,
                 crowd::draw,
                 animate_projectiles,
                 combat_fx::animate,
@@ -227,10 +228,22 @@ struct Figure {
     players: Vec<Entity>,
     active_clip: &'static str,
     clip_started: f64,
+    /// Remaining health of an enemy, from 0 to 1.
+    health: f32,
+    boss: bool,
 }
 
 #[derive(Component)]
 struct FormationMember(Entity);
+
+/// One batched mesh draws the health bars of every damaged enemy and boss.
+#[derive(Resource)]
+struct HealthBars {
+    mesh: Handle<Mesh>,
+}
+
+#[derive(Component)]
+struct HealthCanvas;
 
 struct Fall {
     begins: f64,
@@ -476,6 +489,32 @@ fn setup(
     }
     let combat_fx = CombatFx::new(&mut commands, &mut meshes, &mut mats);
     commands.insert_resource(combat_fx);
+    let bars = meshes.add(
+        Mesh::new(
+            bevy::render::mesh::PrimitiveTopology::TriangleList,
+            bevy::asset::RenderAssetUsages::default(),
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, vec![[0., -50., 0.]; 3])
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 1., 0.]; 3])
+        .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, vec![[0., 0., 0., 1.]; 3])
+        .with_inserted_indices(bevy::render::mesh::Indices::U32(vec![0, 1, 2])),
+    );
+    commands.spawn((
+        HealthCanvas,
+        Mesh3d(bars.clone()),
+        MeshMaterial3d(mats.add(StandardMaterial {
+            base_color: Color::WHITE,
+            unlit: true,
+            cull_mode: None,
+            depth_bias: 40.,
+            ..default()
+        })),
+        Transform::default(),
+        Visibility::Hidden,
+        bevy::render::view::NoFrustumCulling,
+        NotShadowCaster,
+    ));
+    commands.insert_resource(HealthBars { mesh: bars });
     commands.insert_resource(shared);
 }
 
@@ -719,9 +758,13 @@ fn pull_game(
         if game.phase != sim::Phase::Combat {
             speed = 0.;
         }
+        let health = (enemy.hp / enemy.max_hp.max(1.)).clamp(0., 1.);
+        let boss = definition.is_boss();
         if let Some(entity) = arena.figures.get(&enemy.id) {
             if let Ok((mut figure, _)) = figures.get_mut(*entity) {
                 figure.target = position;
+                figure.health = health;
+                figure.boss = boss;
                 if let Some(stride) = &mut figure.stride {
                     stride.refresh(enemy.lane, enemy.progress, speed, now);
                 } else {
@@ -763,6 +806,8 @@ fn pull_game(
                 .queue(move |mut entity: EntityWorldMut| {
                     if let Some(mut figure) = entity.get_mut::<Figure>() {
                         figure.stride = Some(stride);
+                        figure.health = health;
+                        figure.boss = boss;
                     }
                 });
             arena.figures.insert(enemy.id, entity);
@@ -1052,6 +1097,8 @@ fn spawn_figure(
         players: Vec::new(),
         active_clip: "",
         clip_started: 0.,
+        health: 1.,
+        boss: false,
     };
     set_formation(commands, entity, &mut figure, scene, stack);
     commands.entity(entity).insert(figure);
@@ -1420,6 +1467,74 @@ fn mark_boss_zone(
         *visible = Visibility::Visible;
     } else {
         *visible = Visibility::Hidden;
+    }
+}
+
+/// Rebuilds the bar mesh: a dark backing and a fill that turns from green to red.
+fn draw_health(
+    bars: Res<HealthBars>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    figures: Query<(&Figure, &Transform)>,
+    camera: Query<&Transform, (With<ArenaCamera>, Without<Figure>)>,
+    mut canvas: Query<&mut Visibility, With<HealthCanvas>>,
+) {
+    let (Ok(view), Ok(mut visible)) = (camera.single(), canvas.single_mut()) else {
+        return;
+    };
+    let right = view.rotation * Vec3::X;
+    let up = view.rotation * Vec3::Y;
+    let mut positions = Vec::new();
+    let mut colors = Vec::new();
+    let mut indices = Vec::new();
+    let mut quad = |center: Vec3, width: f32, height: f32, color: [f32; 4]| {
+        let start = positions.len() as u32;
+        for (x, y) in [(-1., -1.), (1., -1.), (1., 1.), (-1., 1.)] {
+            positions.push((center + right * (x * width / 2.) + up * (y * height / 2.)).to_array());
+            colors.push(color);
+        }
+        indices.extend([start, start + 1, start + 2, start, start + 2, start + 3]);
+    };
+    for (figure, pose) in &figures {
+        if !figure.enemy || figure.fall.is_some() || (!figure.boss && figure.health > 0.995) {
+            continue;
+        }
+        let scale = pose.scale.x;
+        let (width, height, lift) = if figure.boss {
+            (2.3, 0.2, 2.6)
+        } else {
+            (0.95, 0.13, 1.62)
+        };
+        let width = width * scale / 1.42;
+        let top = pose.translation + Vec3::Y * lift * scale;
+        quad(top, width + 0.08, height + 0.07, [0.07, 0.06, 0.08, 1.]);
+        let fill = figure.health.clamp(0., 1.);
+        let tint = if figure.boss {
+            [0.86, 0.32, 0.55, 1.]
+        } else if fill > 0.6 {
+            [0.42, 0.86, 0.42, 1.]
+        } else if fill > 0.3 {
+            [0.96, 0.78, 0.30, 1.]
+        } else {
+            [0.95, 0.36, 0.28, 1.]
+        };
+        let filled = width * fill;
+        quad(
+            top - right * ((width - filled) / 2.) + up * 0.001,
+            filled,
+            height,
+            tint,
+        );
+    }
+    if positions.is_empty() {
+        *visible = Visibility::Hidden;
+        return;
+    }
+    *visible = Visibility::Inherited;
+    if let Some(mesh) = meshes.get_mut(&bars.mesh) {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0., 1., 0.]; positions.len()]);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+        mesh.insert_indices(bevy::render::mesh::Indices::U32(indices));
     }
 }
 

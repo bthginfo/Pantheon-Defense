@@ -379,7 +379,7 @@ impl CombatFx {
             .origin
             .map_or(0., |origin| facing(end - p3(origin, 0.98)));
         let strength = (hit.power.max(0.) / 130.).min(1.0);
-        self.flash(budget, end, at, pigment, 0.28 + strength * 0.39);
+        self.flash(budget, end, at, pigment, 0.4 + strength * 0.55);
         match kind {
             WeaponLook::Flame | WeaponLook::Frost | WeaponLook::Stone => {
                 let radius = match kind {
@@ -699,13 +699,14 @@ pub fn animate(
         if now < missile.began || now >= missile.ends {
             continue;
         }
+        // Sized for the larger phone figures so every shot reads as a streak.
         let (width, length) = match missile.look {
-            WeaponLook::Bolt => (0.10, 0.92),
-            WeaponLook::Flame => (0.25, 1.25),
-            WeaponLook::Frost => (0.18, 0.81),
-            WeaponLook::Lightning => (0.19, 1.05),
-            WeaponLook::Stone => (0.13, 0.52),
-            _ => (0.15, 0.51),
+            WeaponLook::Bolt => (0.16, 1.2),
+            WeaponLook::Flame => (0.38, 1.6),
+            WeaponLook::Frost => (0.28, 1.05),
+            WeaponLook::Lightning => (0.30, 1.35),
+            WeaponLook::Stone => (0.21, 0.7),
+            _ => (0.24, 0.68),
         };
         draw(
             Shape::Tail,

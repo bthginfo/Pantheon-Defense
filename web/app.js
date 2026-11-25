@@ -59,6 +59,14 @@ let predictRevision = -1;
 let predictionTimer = 0;
 let outbox = [];
 let sending = false;
+let lastGold = null;
+
+function pulse(element, name) {
+  if (!element) return;
+  element.classList.remove(name);
+  void element.offsetWidth;
+  element.classList.add(name);
+}
 let waveRewardTimer;
 let dragStart = null;
 let suppressedClick=null;
@@ -392,6 +400,7 @@ function pushArena() {
 }
 
 function resetPrediction() {
+  lastGold = null;
   lastPacket = null;
   authorityTick = -1;
   predictRevision = -1;
@@ -429,7 +438,8 @@ function openMatch(packet) {
     delete $('stage').dataset.models;
     $('render-notice').hidden=false;
   }
-  setResolution(resolutionCeiling());
+  // Start one step below the sharpest canvas and climb only while the frame rate holds.
+  setResolution(resolutionCeiling()==='crisp' ? 'sharp' : resolutionCeiling());
   $('hub').hidden = true;
   $('match').hidden = false;
   $('footer').hidden = true;
@@ -440,7 +450,7 @@ function openMatch(packet) {
   score(['won','lost'].includes(packet.game.phase) ? '' : packet.game.theme);
   void startArena();
   connectRoom(packet.id);
-  predictionTimer = setInterval(followPrediction, 100);
+  predictionTimer = setInterval(followPrediction, 125);
 }
 
 function leaveView() {
@@ -518,6 +528,7 @@ function refreshMatch(quiet) {
     if (!quiet) { battleSound(event); celebrate(event, game); }
     if (event.kind==='oracle_miss') sceneNotice('Das Orakel hat keine Einheit beschworen.',1700);
     if (event.kind === 'boss_windup') sceneNotice('Schockwelle im markierten Bereich. Verschiebe deinen Trupp.', 1900);
+    if (!quiet && event.kind === 'boss_impact') { pulse($('stage'),'shake'); navigator.vibrate?.(40); }
     if (event.kind === 'boss') sceneNotice(`${enemies.get(event.actor)?.name ?? 'Boss'} nähert sich`, 2800);
   }
   if (recentEvents.size > 3000) recentEvents = new Set(game.events.map(event => event.id));
@@ -590,6 +601,11 @@ function paintMatch() {
   $('life-meter').max=limit;
   $('life-meter').value=filled;
   $('life-meter').classList.toggle('danger',circuit && filled>limit*0.68);
+  // The stage edge warms up while enemies pile up toward the limit.
+  const pressure=circuit && ['prep','combat'].includes(game.phase) ? filled/limit : 0;
+  $('stage').dataset.pressure=pressure>.88 ? 'critical' : pressure>.68 ? 'high' : '';
+  if (lastGold!==null && player.gold>lastGold && game.phase==='combat') pulse($('gold').closest('div'),'gain');
+  lastGold=player.gold;
   $('essence-stat').hidden=!circuit;
   $('essence').textContent=number(player.essence??0);
   $('battle-meter').classList.toggle('four-stats',circuit);
@@ -1072,7 +1088,7 @@ window.addEventListener('pantheon-frame-rate',event=>{
   fastSamples=fps>=55 ? fastSamples+1 : 0;
   if(severeSamples>=2 && current>0) setResolution('economy');
   else if(slowSamples>=2 && current>0) setResolution(resolutionLadder[current-1]);
-  else if(fastSamples>=8 && current<ceiling && room.game.phase!=='combat') setResolution(resolutionLadder[current+1]);
+  else if(fastSamples>=6 && current<ceiling) setResolution(resolutionLadder[current+1]);
 });
 // Floating damage numbers and rarity bursts make every recruit and hit readable.
 const hitPool=[];

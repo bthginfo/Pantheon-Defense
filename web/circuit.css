@@ -247,7 +247,24 @@
   from { opacity:0; transform:translate(-50%,12px) scale(.6); }
   to { opacity:1; transform:translate(-50%,0) scale(1); }
 }
+/* Pressure, income and impact feedback around the stage. */
+.circuit-game .stage::after { transition:box-shadow .4s ease; }
+.circuit-game .stage[data-pressure="high"]::after {
+  box-shadow:inset 0 0 0 2px #ff8a6a66,inset 0 0 46px #ff4a2a55;
+}
+.circuit-game .stage[data-pressure="critical"]::after {
+  box-shadow:inset 0 0 0 3px #ff6a4ab0,inset 0 0 70px #ff3a1a88; animation:pressure-pulse 900ms ease-in-out infinite alternate;
+}
+@keyframes pressure-pulse { from { opacity:.65; } to { opacity:1; } }
+.gold-stat.gain strong { animation:gold-gain 380ms ease-out; }
+@keyframes gold-gain { 0% { transform:scale(1); } 35% { transform:scale(1.16); color:#fff2a8; } 100% { transform:scale(1); } }
+.stage.shake { animation:stage-shake 360ms cubic-bezier(.36,.07,.19,.97); }
+@keyframes stage-shake {
+  10%,90% { transform:translate3d(-1px,0,0); } 20%,80% { transform:translate3d(3px,1px,0); }
+  30%,50%,70% { transform:translate3d(-5px,-1px,0); } 40%,60% { transform:translate3d(5px,1px,0); }
+}
 @media (prefers-reduced-motion:reduce) {
+  .stage.shake,.gold-stat.gain strong,.circuit-game .stage[data-pressure="critical"]::after { animation:none; }
   .draw-reveal,.circuit-game .build-slot.recruit-arrival::after { animation:none; }
   .hit-number { animation:hit-fade 600ms linear both; }
   .circuit-game .build-slot.rarity-burst::before,.stage.flash::before { animation:none; opacity:0; }
