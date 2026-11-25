@@ -8,6 +8,8 @@ und eine eigene Ausstattung. [Freigegebene Stilreferenz](../../references/thekla
 Truppen und Helden haben kompakte Proportionen mit größerem Kopf und kürzeren
 Beinen, damit sie auf dem Handy auf einen Blick lesbar bleiben. Truppen tragen
 ihre Katalogfarbe als Stofffarbe. Thekla und Marcus behalten ihre eigene Anatomie.
+Gegner tragen eine gesättigte, abgedunkelte Fassung ihrer Katalogfarbe; die
+Gegnerübersichten zeigen sie vor dem hellen Stein des Rundkurses.
 
 | Schauplatz | Truppen, Helden und Gebäude | Formationen und Endbosse |
 | --- | --- | --- |
