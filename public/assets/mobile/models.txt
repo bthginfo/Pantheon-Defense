@@ -1,9 +1,6 @@
 agora
 akari
 aquilifer
-arena_aegean
-arena_japan
-arena_rome
 ash_scout
 ashigaru
 astra

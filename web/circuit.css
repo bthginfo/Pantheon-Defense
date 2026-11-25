@@ -46,7 +46,8 @@
 }
 .circuit-game [data-resolution="performance"] { --render-size:84%; --canvas-scale:1.190476; }
 .circuit-game [data-resolution="economy"] { --render-size:72%; --canvas-scale:1.388889; }
-.circuit-game [data-resolution="sharp"] { --render-size:118%; --canvas-scale:.847458; }
+.circuit-game [data-resolution="sharp"] { --render-size:135%; --canvas-scale:.740741; }
+.circuit-game [data-resolution="crisp"] { --render-size:170%; --canvas-scale:.588235; }
 .circuit-game .build-slot {
   height:clamp(27px,calc(var(--tile-size) * .71),46px);
   transform:translate(-50%,-59%); padding:0;

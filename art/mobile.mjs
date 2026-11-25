@@ -27,8 +27,9 @@ function attributes(primitive, fields, count) {
   return { samples, weights };
 }
 
-const boards = catalog.themes.map(({ id }) => `arena_${id}`);
-const ids = [...boards, ...catalog.actors.map(x => x.id), ...catalog.enemies.map(x => x.id)];
+// Boards keep their full export on phones: their painted tiles frame every unit on screen.
+const boards = [];
+const ids = [...catalog.actors.map(x => x.id), ...catalog.enemies.map(x => x.id)];
 const variants = [];
 for (const id of ids) {
   const source = new URL(`models/${id}.glb`, assets);

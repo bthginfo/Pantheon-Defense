@@ -429,10 +429,7 @@ function openMatch(packet) {
     delete $('stage').dataset.models;
     $('render-notice').hidden=false;
   }
-  delete $('stage').dataset.resolution;
-  slowSamples=0;
-  severeSamples=0;
-  fastSamples=0;
+  setResolution(resolutionCeiling());
   $('hub').hidden = true;
   $('match').hidden = false;
   $('footer').hidden = true;
@@ -1053,24 +1050,29 @@ window.addEventListener('pantheon-slots', event => {
   }
   if (!$('stage').dataset.rendered) markRendered();
 });
+// Phones start with a sharp canvas and step down when the frame rate drops.
+const resolutionLadder=['economy','performance','','sharp','crisp'];
+function resolutionCeiling() {
+  return devicePixelRatio>=2 ? 'crisp' : devicePixelRatio>1.25 ? 'sharp' : '';
+}
+function setResolution(level) {
+  const stage=$('stage');
+  if(level) stage.dataset.resolution=level; else delete stage.dataset.resolution;
+  slowSamples=0; severeSamples=0; fastSamples=0;
+}
 window.addEventListener('pantheon-frame-rate',event=>{
   const stage=$('stage');
   stage.dataset.renderFps=event.detail;
   if(!isCircuit(room?.game)||!handheld()||!stage.dataset.rendered||document.hidden)return;
   const fps=Number(event.detail);
-  const resolution=stage.dataset.resolution;
-  slowSamples=fps<(resolution==='sharp'?42:26) ? slowSamples+1 : 0;
+  const current=resolutionLadder.indexOf(stage.dataset.resolution??'');
+  const ceiling=resolutionLadder.indexOf(resolutionCeiling());
+  slowSamples=fps<40 ? slowSamples+1 : 0;
   severeSamples=fps<15 ? severeSamples+1 : 0;
-  fastSamples=fps>=54 ? fastSamples+1 : 0;
-  if(severeSamples>=2 && resolution!=='economy') stage.dataset.resolution='economy';
-  else if(slowSamples>=2 && resolution==='sharp') delete stage.dataset.resolution;
-  else if(slowSamples>=3 && !resolution) stage.dataset.resolution='performance';
-  else if(fastSamples>=8 && room.game.phase!=='combat') {
-    if(resolution==='economy') stage.dataset.resolution='performance';
-    else if(resolution==='performance') delete stage.dataset.resolution;
-    else if(!resolution && devicePixelRatio>1.25) stage.dataset.resolution='sharp';
-    fastSamples=0;
-  }
+  fastSamples=fps>=55 ? fastSamples+1 : 0;
+  if(severeSamples>=2 && current>0) setResolution('economy');
+  else if(slowSamples>=2 && current>0) setResolution(resolutionLadder[current-1]);
+  else if(fastSamples>=8 && current<ceiling && room.game.phase!=='combat') setResolution(resolutionLadder[current+1]);
 });
 function boardAsset(game) {
   return isCircuit(game) ? game.theme : 'gate';

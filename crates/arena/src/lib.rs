@@ -953,9 +953,10 @@ fn spawn_figure(
 ) -> Entity {
     let size = if arena.rule_version >= sim::CIRCUIT_RULES {
         match sim::actor(id).map(|actor| actor.kind.as_str()) {
-            Some("building") => 1.0,
-            Some("hero") => 1.35,
-            _ => 1.21,
+            Some("building") => 1.12,
+            Some("hero") => 1.72,
+            _ if enemy => 1.42,
+            _ => 1.55,
         }
     } else {
         1.0
@@ -1384,15 +1385,16 @@ fn orient_camera(
         return;
     }
     if arena.rule_version >= sim::CIRCUIT_RULES {
+        // A steeper view frames the portrait board edge to edge on a phone.
         let side = if viewer == 0 { 1. } else { -1. };
-        *transform = Transform::from_xyz(2.02 * side, 25.7, 21.4 * side)
-            .looking_at(Vec3::new(0., 0.04, 0.), Vec3::Y);
+        *transform = Transform::from_xyz(1.35 * side, 27.0, 17.5 * side)
+            .looking_at(Vec3::new(0., 0.04, 0.35 * side), Vec3::Y);
         *projection = Projection::Orthographic(OrthographicProjection {
             scaling_mode: ScalingMode::AutoMin {
-                min_width: if graphics.mobile { 17.82 } else { 17.35 },
-                min_height: 17.05,
+                min_width: if graphics.mobile { 14.7 } else { 15.6 },
+                min_height: 18.3,
             },
-            viewport_origin: Vec2::new(0.5, if graphics.mobile { 0.455 } else { 0.5 }),
+            viewport_origin: Vec2::new(0.5, if graphics.mobile { 0.47 } else { 0.5 }),
             ..OrthographicProjection::default_3d()
         });
     } else {

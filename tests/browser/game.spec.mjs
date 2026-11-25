@@ -53,7 +53,7 @@ test('a phone can recruit, move troops, place a building and fight fullscreen', 
   try {
     await signUp(page,testAccount('solo'));
     await page.locator('#challenge').selectOption('rush');
-    const mobileArena = page.waitForResponse(response => new URL(response.url()).pathname==='/assets/mobile/arena_aegean.glb');
+    const mobileArena = page.waitForResponse(response => new URL(response.url()).pathname==='/assets/models/arena_aegean.glb');
     await page.locator('#create-match').tap();
     expect((await mobileArena).ok()).toBe(true);
     await expect(page.locator('#stage')).toHaveAttribute('data-rendered','true',{timeout:45_000});
