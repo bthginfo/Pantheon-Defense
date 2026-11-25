@@ -48,10 +48,10 @@ for (const id of ids) {
     : [['COLOR_0', .26], ['NORMAL', .088], ['TEXCOORD_0', .08], ['WEIGHTS_0', .32]];
   const { samples, weights } = attributes(primitive, fields, vertices.getCount());
   const bounds = MeshoptSimplifier.getScale(positions, 3);
-  const target = Math.floor(original.length * (board ? .35 : .36) / 3) * 3;
+  const target = Math.floor(original.length * (board ? .35 : .58) / 3) * 3;
   const [indices] = MeshoptSimplifier.simplifyWithAttributes(
     Uint32Array.from(original), positions, 3, samples, weights.length, weights, null,
-    target, (board ? .065 : .016) / bounds, ['Permissive', 'Prune'],
+    target, (board ? .065 : .010) / bounds, ['Permissive', 'Prune'],
   );
   if (!indices.length || indices.length > original.length * .75) continue;
   reindex(primitive, indices);

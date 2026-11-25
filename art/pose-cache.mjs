@@ -139,7 +139,7 @@ for (const {id,kind} of [...catalog.actors,...catalog.enemies]) {
   if (triangles >= 1_667) {
     // Keep paint and joints aligned while cutting small geometry visible only in close-ups.
     const hero = kind === 'hero';
-    const indices = simplify(primitive, crowdFields, hero ? .57 : .44, hero ? .035 : .047);
+    const indices = simplify(primitive, crowdFields, hero ? .82 : .7, hero ? .022 : .03);
     if (indices.length && indices.length < triangles * 3 * .89) reindex(primitive, indices);
   }
   const paint = primitive.getMaterial()?.getBaseColorTexture()?.getImage();
