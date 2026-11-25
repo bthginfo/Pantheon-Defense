@@ -3,7 +3,7 @@ from math import cos, pi, sin, tau
 from random import Random
 
 from forge import empty, material, span
-from figures import cut, curve, emblem, fabric_panel, limb, pin
+from figures import cut, curve, dyed_profile, emblem, fabric_panel, limb, mix, pin, vivid
 from commander_forms import strips
 from geometry import bevel_block as block, mesh_object, shell, silhouette, torus_mesh
 from beast_armor import finish_guards, regional_paints
@@ -31,14 +31,19 @@ def palette(item):
     family=item.get("archetype",item["id"])
     ink,rock,metal,flare,trim=TINTS[family]
     region=item.get("theme")
+    body_pigment,cloth_pigment="linen shadow","teal"
     if region:
         ink,rock,metal,trim,_=REGIONS[region]
         flare=item["color"].lstrip("#")
+        # Each formation wears its catalogue colour so it stands out on the pale route.
+        rock=vivid(mix(flare,"2b3442",.32),1.35,1.0)
+        ink=mix(flare,"161b26",.64)
+        body_pigment=cloth_pigment=dyed_profile(item,rock)
     paints={}
     for name,color,metallic,pigment in [
-        ("ink",ink,0,"hide dark"),("rock",rock,.05,"linen shadow"),
+        ("ink",ink,0,"hide dark"),("rock",rock,.05,body_pigment),
         ("old gold",metal,.44,"bronze"),("ember",flare,0,""),("accent",trim,.03,"paint blue" if region!="rome" else "paint red"),
-        ("hem",ink,0,"teal lining"),("fabric",rock,0,"teal"),("fillet",metal,.31,"brass"),
+        ("hem",ink,0,"teal lining"),("fabric",rock,0,cloth_pigment),("fillet",metal,.31,"brass"),
         ("gold",flare,0,""),("claw","c4aa82",0,"linen"),("edge","bda78d",.21,"iron edge"),
     ]:
         shade=material(name,color,metallic)
