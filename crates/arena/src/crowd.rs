@@ -274,15 +274,29 @@ impl Crowd {
                     .is_some_and(|map| map.wave_pack.contains(id) || map.boss_pack.contains(id))
         });
         self.queue.clear();
+        // Everything a match on this map can show is fetched ahead, commonest first, so a rare
+        // recruit, a hero or a boss never stalls the frame on its first appearance.
+        let mut troops: Vec<_> = catalog
+            .actors
+            .iter()
+            .filter(|actor| actor.theme == theme && actor.kind == "troop")
+            .collect();
+        troops.sort_by_key(|actor| actor.rarity);
+        let (common, rare): (Vec<_>, Vec<_>) = troops.into_iter().partition(|actor| actor.rarity <= 2);
+        self.queue.extend(common.iter().map(|actor| actor.id.clone()));
+        if let Some(theme) = region {
+            self.queue.extend(theme.wave_pack.iter().cloned());
+        }
+        self.queue.extend(rare.iter().map(|actor| actor.id.clone()));
         self.queue.extend(
             catalog
                 .actors
                 .iter()
-                .filter(|actor| actor.theme == theme && actor.kind == "troop" && actor.rarity <= 2)
+                .filter(|actor| actor.theme == theme && actor.kind == "hero")
                 .map(|actor| actor.id.clone()),
         );
         if let Some(theme) = region {
-            self.queue.extend(theme.wave_pack.iter().cloned());
+            self.queue.extend(theme.boss_pack.iter().cloned());
         }
         if let Some(id) = self.queue.pop_front() {
             self.request(assets, &id);
