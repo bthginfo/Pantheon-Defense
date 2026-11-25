@@ -605,11 +605,19 @@ impl CombatFx {
         let (pigment, radius, count) = match event.kind.as_str() {
             "boss_impact" => (Hue::Ember, event.power, 12),
             "victory" => (Hue::Amber, 2.7, 16),
-            "merge" | "ritual" => (Hue::Amber, 1.25, 9),
+            "merge" | "ritual" => (Hue::Amber, 1.65, 14),
             "stack" | "upgrade" => (Hue::Jade, 0.89, 5),
             "death" | "leak" => (Hue::Ember, 0.55, 4),
             "boss" => (Hue::Violet, 1.06, 7),
-            "draw" | "place" => (Hue::Ivory, 0.66, 3),
+            // Rarer recruits land with a larger, coloured burst.
+            "draw" => match event.power as u8 {
+                5 => (Hue::Amber, 2.1, 18),
+                4 => (Hue::Violet, 1.6, 13),
+                3 => (Hue::Ice, 1.15, 9),
+                2 => (Hue::Jade, 0.84, 6),
+                _ => (Hue::Ivory, 0.66, 4),
+            },
+            "place" => (Hue::Ivory, 0.66, 3),
             _ => return,
         };
         let pos = p3(event.pos, 0.54);

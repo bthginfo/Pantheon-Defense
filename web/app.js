@@ -515,7 +515,7 @@ function refreshMatch(quiet) {
   for (const event of game.events) {
     if (recentEvents.has(event.id) || event.tick + 24 < game.tick) continue;
     recentEvents.add(event.id);
-    if (!quiet) battleSound(event);
+    if (!quiet) { battleSound(event); celebrate(event, game); }
     if (event.kind==='oracle_miss') sceneNotice('Das Orakel hat keine Einheit beschworen.',1700);
     if (event.kind === 'boss_windup') sceneNotice('Schockwelle im markierten Bereich. Verschiebe deinen Trupp.', 1900);
     if (event.kind === 'boss') sceneNotice(`${enemies.get(event.actor)?.name ?? 'Boss'} nähert sich`, 2800);
@@ -777,7 +777,7 @@ function paintOrders() {
 function revealRecruit(unit, detail) {
   const definition=actors.get(unit.actor);
   const label=$('draw-reveal');
-  label.className=`draw-reveal rarity-${unit.tier}`;
+  label.className=`draw-reveal rarity-${unit.tier}${unit.tier>=4 ? ' jackpot' : ''}`;
   label.innerHTML=`${portrait(definition.id)}<span><strong>${esc(definition.name)}</strong><small>${rarities[unit.tier]} · ${detail}</small></span>`;
   label.hidden=false;
   clearTimeout(drawNoticeTimer);
@@ -1074,6 +1074,57 @@ window.addEventListener('pantheon-frame-rate',event=>{
   else if(slowSamples>=2 && current>0) setResolution(resolutionLadder[current-1]);
   else if(fastSamples>=8 && current<ceiling && room.game.phase!=='combat') setResolution(resolutionLadder[current+1]);
 });
+// Floating damage numbers and rarity bursts make every recruit and hit readable.
+const hitPool=[];
+let hitsShown=0;
+function shortNumber(value) {
+  if (value>=10_000) return `${Math.round(value/1000)}k`;
+  if (value>=1_000) return `${(value/1000).toFixed(1).replace('.',',')}k`;
+  return String(Math.max(1,Math.round(value)));
+}
+window.addEventListener('pantheon-hits', event => {
+  if (!room || document.hidden) return;
+  const layer=$('hit-layer');
+  for (const [x,y,damage] of JSON.parse(event.detail)) {
+    if (hitsShown>=34) break;
+    const mark=hitPool.pop() ?? document.createElement('span');
+    mark.className=`hit-number${damage>=1500 ? ' mega' : damage>=320 ? ' heavy' : ''}`;
+    mark.textContent=shortNumber(damage);
+    mark.style.left=`${(x*100+(Math.random()-.5)*3).toFixed(2)}%`;
+    mark.style.top=`${(y*100).toFixed(2)}%`;
+    layer.append(mark);
+    hitsShown++;
+    mark.addEventListener('animationend',()=>{ mark.remove(); hitPool.push(mark); hitsShown--; },{once:true});
+  }
+});
+
+function burstSlot(slot, tier, kind) {
+  const field=grid[slot];
+  if (!field) return;
+  field.dataset.burst=kind;
+  field.style.setProperty('--burst', `var(--rarity-${['common','common','uncommon','rare','epic','legendary'][Math.min(5,tier)]})`);
+  field.classList.remove('rarity-burst');
+  void field.offsetWidth;
+  field.classList.add('rarity-burst');
+  setTimeout(()=>field.classList.remove('rarity-burst'),950);
+}
+
+function celebrate(event, game) {
+  if (!['draw','merge','ritual'].includes(event.kind)) return;
+  const piece=game.pieces.find(item=>item.id===event.source);
+  if (!piece || piece.owner!==room.viewer) return;
+  const tier=event.kind==='ritual' ? 5 : Math.round(event.power);
+  burstSlot(piece.slot, tier, event.kind);
+  if (tier>=4 || event.kind!=='draw') {
+    const stage=$('stage');
+    stage.dataset.flash=event.kind==='draw' ? `tier-${tier}` : event.kind;
+    stage.classList.remove('flash');
+    void stage.offsetWidth;
+    stage.classList.add('flash');
+    navigator.vibrate?.(tier>=5 ? [30,50,40,50,60] : tier>=4 ? [25,40,35] : 18);
+  }
+}
+
 function boardAsset(game) {
   return isCircuit(game) ? game.theme : 'gate';
 }

@@ -100,7 +100,7 @@ pub fn play_arena(mobile: bool) {
         )
         .add_systems(
             PostUpdate,
-            project_slots
+            (project_slots, report_hits)
                 .after(TransformSystem::TransformPropagate)
                 .after(CameraUpdateSystem),
         );
@@ -192,6 +192,15 @@ struct Arena {
     tick_arrived: f64,
     boss_cast: Option<sim::BossCast>,
     ready: bool,
+    hits: Vec<Hit>,
+}
+
+/// A landed shot whose damage number floats above the enemy.
+struct Hit {
+    at: f64,
+    enemy: u32,
+    pos: Vec3,
+    damage: f32,
 }
 
 #[derive(Clone)]
@@ -835,6 +844,14 @@ fn pull_game(
                         figure.hit_at = Some(figure.hit_at.map_or(at, |first| first.min(at)));
                     }
                 }
+                if arena.hits.len() < 96 && effect.power > 0. {
+                    arena.hits.push(Hit {
+                        at,
+                        enemy: effect.source,
+                        pos: p3(effect.pos, 0.36),
+                        damage: effect.power,
+                    });
+                }
                 let mut sparks = budget.saturating_sub(30);
                 if sparks > 0 {
                     let carried = sparks;
@@ -1429,6 +1446,60 @@ fn report_fps(time: Res<Time<Real>>, mut sample: Local<FpsSample>) {
         );
         sample.frames = 0;
         sample.first = now;
+    }
+}
+
+/// Sends landed hits to the page as `[x, y, damage]` in viewport fractions.
+fn report_hits(
+    time: Res<Time<Real>>,
+    mut arena: ResMut<Arena>,
+    camera: Query<(&Camera, &GlobalTransform), With<ArenaCamera>>,
+    poses: Query<&GlobalTransform, With<Figure>>,
+) {
+    if arena.hits.is_empty() {
+        return;
+    }
+    let now = time.elapsed_secs_f64();
+    let Ok((camera, view)) = camera.single() else {
+        arena.hits.clear();
+        return;
+    };
+    let Some(size) = camera.logical_viewport_size().filter(|size| size.x > 4. && size.y > 4.) else {
+        arena.hits.clear();
+        return;
+    };
+    let mut landed: Vec<(u32, Vec3, f32)> = Vec::new();
+    let Arena { hits, figures, .. } = &mut *arena;
+    hits.retain(|hit| {
+        if hit.at > now {
+            return true;
+        }
+        // Hits held back while the tab was hidden would only flood the screen.
+        if now - hit.at < 0.6 {
+            let base = figures
+                .get(&hit.enemy)
+                .and_then(|entity| poses.get(*entity).ok())
+                .map_or(hit.pos, GlobalTransform::translation);
+            if let Some(entry) = landed.iter_mut().find(|entry| entry.0 == hit.enemy) {
+                entry.2 += hit.damage;
+            } else {
+                landed.push((hit.enemy, base, hit.damage));
+            }
+        }
+        false
+    });
+    let marks: Vec<[f32; 3]> = landed
+        .into_iter()
+        .take(18)
+        .filter_map(|(_, base, damage)| {
+            let point = camera.world_to_viewport(view, base + Vec3::Y * 1.75).ok()?;
+            Some([point.x / size.x, point.y / size.y, damage.round()])
+        })
+        .collect();
+    if !marks.is_empty() {
+        if let Ok(text) = serde_json::to_string(&marks) {
+            event("pantheon-hits", &text);
+        }
     }
 }
 
