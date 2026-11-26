@@ -51,6 +51,8 @@ struct Graphics {
 
 #[wasm_bindgen]
 pub fn play_arena(mobile: bool) {
+    // The release build has no logging plugin, so a panic would stop the renderer silently.
+    std::panic::set_hook(Box::new(|info| event("pantheon-crash", &info.to_string())));
     let mut app = App::new();
     app.insert_resource(Graphics { mobile })
         .insert_resource(ClearColor(Color::srgb_u8(25, 70, 77)))
@@ -506,7 +508,6 @@ fn setup(
             base_color: Color::WHITE,
             unlit: true,
             cull_mode: None,
-            depth_bias: 40.,
             ..default()
         })),
         Transform::default(),

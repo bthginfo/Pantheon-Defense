@@ -15,6 +15,15 @@ export default async function handle(req, res) {
       return respond(res, 200, { user: user ? await profile(user) : null });
     }
     if (req.method === 'POST') assertOrigin(req);
+    if (req.method === 'POST' && operation === 'client-log') {
+      // Renderer failures on players' devices land in the deployment's runtime log.
+      const data = await body(req);
+      const text = (value, limit) => String(value ?? '').slice(0, limit);
+      console.warn('[client]', JSON.stringify({ kind: text(data.kind, 40), detail: text(data.detail, 600),
+        version: text(data.version, 20), ua: text(data.ua, 220), screen: text(data.screen, 40),
+        resolution: text(data.resolution, 20), phase: text(data.phase, 20) }));
+      return respond(res, 200, { ok: true });
+    }
     if (req.method === 'POST' && operation === 'register') return respond(res, 201, { user: await register(req, res, await body(req)) });
     if (req.method === 'POST' && operation === 'login') return respond(res, 200, { user: await login(req, res, await body(req)) });
     const user = await identity(req);

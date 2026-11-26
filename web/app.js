@@ -1090,6 +1090,46 @@ window.addEventListener('pantheon-frame-rate',event=>{
   else if(slowSamples>=2 && current>0) setResolution(resolutionLadder[current-1]);
   else if(fastSamples>=6 && current<ceiling) setResolution(resolutionLadder[current+1]);
 });
+// Renderer failures are reported a few times per page so they appear in the server log,
+// and the player can reload straight back into the running match.
+let clientReports = 0;
+function reportClient(kind, detail) {
+  if (clientReports >= 6) return;
+  clientReports++;
+  const body = { kind, detail: String(detail ?? '').slice(0, 600), version: currentVersion,
+    ua: navigator.userAgent, screen: `${innerWidth}x${innerHeight}@${devicePixelRatio}`,
+    resolution: $('stage')?.dataset.resolution ?? '', phase: room?.game?.phase ?? '' };
+  fetch('/api/game?op=client-log', { method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(body), keepalive:true }).catch(() => {});
+}
+function rendererFailed(kind, detail) {
+  reportClient(kind, detail);
+  const notice = $('render-notice');
+  notice.innerHTML = 'Die 3D-Ansicht wurde unterbrochen. <button class="minibutton" data-reload-arena>Neu laden</button>';
+  notice.classList.add('actionable');
+  notice.hidden = false;
+}
+window.addEventListener('pantheon-crash', event => rendererFailed('crash', event.detail));
+window.addEventListener('error', event => {
+  const text = `${event.message ?? ''} @ ${event.filename ?? ''}:${event.lineno ?? ''}`;
+  if (/control flow|isn't actually an error/i.test(text)) return;
+  if (/RuntimeError|unreachable|memory access/i.test(text)) rendererFailed('trap', text);
+  else reportClient('error', text);
+});
+window.addEventListener('unhandledrejection', event => reportClient('rejection', event.reason?.message ?? event.reason));
+$('arena').addEventListener('webglcontextlost', () => rendererFailed('context-lost', 'webglcontextlost'));
+document.addEventListener('click', event => {
+  if (!event.target.closest?.('[data-reload-arena]')) return;
+  try { if (room) sessionStorage.setItem('pantheon-resume', room.id); } catch {}
+  location.reload();
+});
+async function resumeAfterReload() {
+  let id = null;
+  try { id = sessionStorage.getItem('pantheon-resume'); sessionStorage.removeItem('pantheon-resume'); } catch {}
+  if (!id || !user) return;
+  try { openMatch(await request('board', undefined, {id})); } catch (error) { toast(error.message, true); }
+}
+
 // Floating damage numbers and rarity bursts make every recruit and hit readable.
 const hitPool=[];
 let hitsShown=0;
@@ -1404,4 +1444,4 @@ paintPreparation();
 soundLabel();
 versionLabel();
 void request('health').then(data => { currentVersion = data.version; versionLabel(); }).catch(() => {});
-void refreshAccount().then(() => { void recentRooms(); showInvite(); });
+void refreshAccount().then(() => { void recentRooms(); showInvite(); void resumeAfterReload(); });
